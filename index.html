@@ -148,7 +148,6 @@ details summary::-webkit-details-marker{display:none}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 // Powerosso: lector del formato de planificación (hoja tipo "HIPERTROFIA").
 // Recibe una matriz de filas (array de arrays, como XLSX.utils.sheet_to_json(ws,{header:1})) y devuelve el plan.
@@ -158,8 +157,10 @@ function parsePlan(rows, sheetName, firstRow){
   const up = v => S(v).toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
   const plan = {sheet: sheetName, macro: sheetName, title:'', details:'', params:{}, weeks:[], warnings:[]};
   let week=null, day=null, cols=null, titleCol=1;
-  // La columna del título es la primera que contiene "SEMANA n"
-  for (const r of rows){ const i=(r||[]).findIndex(c=>/^SEMANA\s*\d+/.test(up(c))); if(i>=0){titleCol=i;break;} }
+  // La columna del título es la de la primera cabecera "EJERCICIO" (si no hay, la primera con "SEMANA n")
+  let found=false;
+  for (const r of rows){ const i=(r||[]).findIndex(c=>up(c)==='EJERCICIO'); if(i>=0){titleCol=i;found=true;break;} }
+  if(!found) for (const r of rows){ const i=(r||[]).findIndex(c=>/^SEMANA\s*\d+/.test(up(c))); if(i>=0){titleCol=i;break;} }
   const rest = txt => {
     const t = up(txt); if(!t) return null;
     const m = t.match(/(\d+(?:[.,]\d+)?)\s*(?:-|–|A)?\s*(\d+(?:[.,]\d+)?)?\s*(MIN|S|SEG)/);
@@ -220,30 +221,53 @@ const ARTIFACT_URL='https://claude.ai/artifact/4MaRbmVh4f9RWDxb79btCP';
 const OBS=['Intensidad perfecta','Podría hacer más','Muy pesado','Molestia / dolor','Duda técnica'];
 const EFF=7; // serie efectiva: RPE >= 7, igual que tu hoja DATOS ANÁLISIS
 
-// ---------- almacenamiento: Supabase (versión GitHub), base del artifact (db) o este navegador ----------
+// ---------- almacenamiento: Supabase (versión GitHub, link con clave ?k=), base del artifact (db) o este navegador ----------
 const SB=window.POWEROSSO_SUPABASE||{};
-const SB_ERR=e=>flash(e&&/row-level security|permission/i.test(e.message||'')?'No tienes permiso para guardar esto.':'No se pudo guardar. Revisa tu conexión.',true);
-const Store={kind:'local',db:null,sb:null,q:{},subs:[],cache:{},
-  async init(){ if(SB.url&&SB.anonKey&&window.supabase){ this.kind='supa'; this.sb=window.supabase.createClient(SB.url,SB.anonKey,{auth:{flowType:'pkce',persistSession:true,detectSessionInUrl:true}}); return }
+const urlToken=()=>{try{return new URLSearchParams(location.search).get('k')||''}catch(e){return ''}};
+async function rpc(fn,args){ const r=await fetch(`${SB.url.replace(/\/$/,'')}/rest/v1/rpc/${fn}`,{method:'POST',headers:{apikey:SB.anonKey,Authorization:'Bearer '+SB.anonKey,'Content-Type':'application/json'},body:JSON.stringify(args)});
+  const t=await r.text(); let j=null; try{j=t?JSON.parse(t):null}catch(e){} if(!r.ok){const e=new Error((j&&j.message)||t||r.statusText); e.status=r.status; throw e} return j }
+const Store={kind:'local',db:null,q:{},subs:[],token:'',since:null,pulls:0,pending:new Set(),files:{},parsed:{},
+  async init(){ if(SB.url&&SB.anonKey){ this.kind='supa'; this.token=urlToken(); return }
     let db=null; try{ if(window.claude&&window.claude.use) db=await window.claude.use('db') }catch(e){} if(db){this.kind='db';this.db=db} },
-  // filas de Supabase <-> documentos de la app
-  fromRow(coll,r){ return coll==='athletes'?{...r.data,email:r.email||'',coach:!!r.coach}:r.data },
-  toRow(coll,id,b){ const t=new Date().toISOString(); return coll==='athletes'?{id,email:(b.email||'').trim().toLowerCase()||null,coach:!!b.coach,data:b,updated_at:t}:{id,aid:b.aid,data:b,updated_at:t} },
-  listenSupa(coll,cb){ const o=this.cache[coll]={}, cols=coll==='athletes'?'id,email,coach,data':'id,data';
-    const load=async()=>{ let from=0; for(;;){ const {data,error}=await this.sb.from(coll).select(cols).range(from,from+999); if(error){flash('No se pudieron cargar los datos. Recarga la página.',true);break} data.forEach(r=>o[r.id]=this.fromRow(coll,r)); if(data.length<1000) break; from+=1000 } cb(Object.assign({},o)) };
-    this.sb.channel('rt-'+coll).on('postgres_changes',{event:'*',schema:'public',table:coll},p=>{ if(p.eventType==='DELETE') delete o[p.old.id]; else o[p.new.id]=this.fromRow(coll,p.new); cb(Object.assign({},o)) }).subscribe();
-    load() },
+  // Supabase: trae todo lo visible para esta clave (o solo lo cambiado) y lee las planillas nuevas
+  async pull(full){ full=full||!this.since||(++this.pulls%15===0);
+    const r=await rpc('pw_load',{p_token:this.token,p_since:full?null:this.since});
+    this.since=new Date(Date.parse(r.now)-5000).toISOString(); S.isCoach=!!r.me.coach; S.myAid=r.me.id;
+    let changed=full; for(const c of ['athletes','logs','notes']){ const inc=r[c]||{}; if(full){ const keep={}; for(const k of Object.keys(DATA[c])) if(this.pending.has(c+'/'+k)) keep[k]=DATA[c][k]; DATA[c]=Object.assign({},inc,keep) }
+      else for(const k in inc){ if(this.pending.has(c+'/'+k)) continue; DATA[c][k]=inc[k]; changed=true } }
+    if(full) this.files=Object.assign({},r.files); else Object.assign(this.files,r.files||{});
+    if(await this.readFiles()) changed=true; return changed },
+  async readFiles(){ let ch=false; const need=[...new Set(Object.values(DATA.athletes).map(a=>a.file).filter(Boolean))];
+    for(const name of need){ const mt=this.files[name]; if(mt===undefined) continue; if(this.parsed[name]&&this.parsed[name].mtime===mt) continue;
+      try{ const b64=await rpc('pw_file',{p_token:this.token,p_name:name}); if(!b64) continue; this.parsed[name]={mtime:mt,...wbPlans(XLSX.read(b64,{type:'base64'}))}; ch=true }catch(e){ console.warn('planilla',name,e) } }
+    return ch },
   local(){try{return JSON.parse(localStorage.getItem('powerosso.v3'))||{}}catch(e){return {}}},
   saveLocal(o){try{localStorage.setItem('powerosso.v3',JSON.stringify(o))}catch(e){}},
-  listen(coll,cb){ if(this.kind==='supa') return this.listenSupa(coll,cb); if(this.kind==='db'){ return this.db.collection(coll).onSnapshot(s=>{const o={}; s.docs.forEach(d=>o[d.id]=d.data()); cb(o)}, e=>{flash('Se perdió la conexión con los datos. Recarga la página.',true)}) }
+  listen(coll,cb){ if(this.kind==='db'){ return this.db.collection(coll).onSnapshot(s=>{const o={}; s.docs.forEach(d=>o[d.id]=d.data()); cb(o)}, e=>{flash('Se perdió la conexión con los datos. Recarga la página.',true)}) }
     const f=()=>cb(Object.assign({},this.local()[coll]||{})); this.subs.push(f); f(); },
-  put(coll,id,body){ DATA[coll][id]=body; if(this.kind==='supa'){ this.cache[coll][id]=body; const k=coll+'/'+id; this.q[k]=(this.q[k]||Promise.resolve()).then(async()=>{const {error}=await this.sb.from(coll).upsert(this.toRow(coll,id,body)); if(error) SB_ERR(error)}); return this.q[k] }
+  put(coll,id,body){ DATA[coll][id]=body; if(this.kind==='supa'){ const k=coll+'/'+id; this.pending.add(k);
+      this.q[k]=(this.q[k]||Promise.resolve()).then(()=>rpc('pw_put',{p_token:this.token,p_coll:coll,p_id:id,p_data:body})).catch(e=>flash(e.status===403||/permiso/.test(e.message)?'No tienes permiso para guardar esto.':'No se pudo guardar. Revisa tu conexión.',true)).finally(()=>this.pending.delete(k)); return this.q[k] }
     if(this.kind==='db'){ const k=coll+'/'+id; this.q[k]=(this.q[k]||Promise.resolve()).then(()=>this.db.collection(coll).doc(id).set(body)).catch(e=>flash(e&&e.code==='invalid_argument'?'No tienes permiso para guardar aquí. Pide a tu coach que te comparta la app como editor.':e&&e.code==='quota_exceeded'?'La base de datos está llena.':'No se pudo guardar. Revisa tu conexión.',true)); return this.q[k] }
     const o=this.local(); (o[coll]=o[coll]||{})[id]=body; this.saveLocal(o); return Promise.resolve() },
-  del(coll,id){ delete DATA[coll][id]; if(this.kind==='supa'){ delete this.cache[coll][id]; return this.sb.from(coll).delete().eq('id',id).then(({error})=>error&&SB_ERR(error)) }
+  del(coll,id){ delete DATA[coll][id]; if(this.kind==='supa') return rpc('pw_del',{p_token:this.token,p_coll:coll,p_id:id}).catch(()=>flash('No se pudo borrar.',true));
     if(this.kind==='db') return this.db.collection(coll).doc(id).delete().catch(()=>{}); const o=this.local(); if(o[coll]) delete o[coll][id]; this.saveLocal(o); return Promise.resolve() }
 };
 const DATA={athletes:{},logs:{},notes:{}};
+// Mesociclos: solo cuentan las hojas cuyo nombre contiene una de estas palabras (sin importar mayúsculas ni tildes)
+const MESOS=[['HIPERTROFIA','Hipertrofia',/HIPERTROFIA/],['FUERZA BASE','Fuerza base',/FUERZA\s*BASE/],['VOLUMEN','Volumen',/VOLUMEN/],['PEAKING','Peaking',/PEAKING/],['TAPERING','Tapering',/TAP+ERING/]];
+const normU=t=>String(t||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+const mesoLabel=k=>(MESOS.find(m=>m[0]===k)||[k,k])[1];
+function wbPlans(wb){ const plans={}, skipped=[];
+  for(const n of wb.SheetNames){ const m=MESOS.find(x=>x[2].test(normU(n))); if(!m) continue; const ws=wb.Sheets[n]; if(!ws||!ws['!ref']) continue;
+    const p=parsePlan(XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null}),n,XLSX.utils.decode_range(ws['!ref']).s.r+1);
+    const ex=p.weeks.reduce((a,w)=>a+w.days.reduce((b,d)=>b+d.exercises.length,0),0); if(!ex){skipped.push(n);continue}
+    p.weeks=p.weeks.filter(w=>w.days.some(d=>d.exercises.length)); p.meso=m[0]; p.macro=m[1].toUpperCase(); p.nEx=ex;
+    if(!plans[m[0]]||ex>plans[m[0]].nEx) plans[m[0]]=p }
+  return {plans,skipped,sheets:wb.SheetNames} }
+// planes de un alumno: de su planilla en Supabase, o guardados en su ficha (artifact / navegador)
+function plansOf(a){ if(!a) return {}; if(Store.kind==='supa') return (Store.parsed[a.file]||{}).plans||{}; if(a.plans) return a.plans; if(a.plan) return {[a.plan.meso||'HIPERTROFIA']:a.plan}; return {} }
+function mesoOf(a){ const P=plansOf(a); if(a&&a.meso&&P[a.meso]) return a.meso; const m=MESOS.find(x=>P[x[0]]); return m?m[0]:null }
+const planOf=a=>{const k=mesoOf(a); return k?plansOf(a)[k]:null};
 const S={ready:0, isCoach:false, mode:'loading', aid:null, coachAid:null, tab:'entrenar', ctab:'alumnos', view:'dias', week:null, day:null, ex:0, toast:'', toastErr:false, confirm:null, importMsg:null, obsOpen:false, obsTag:null, timer:null, pending:null, adding:false};
 function flash(msg,err){S.toast=msg;S.toastErr=!!err;render()}
 
@@ -258,19 +282,17 @@ const fdate=ts=>{try{return new Date(ts).toLocaleDateString('es-CL',{day:'numeri
 const slug=s=>String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,24)||'alumno';
 const rnd=()=>Math.random().toString(36).slice(2,6);
 const ATH=()=>DATA.athletes[S.aid];
-const PLAN=()=>ATH()&&ATH().plan;
+const PLAN=()=>planOf(ATH());
 const wkObj=n=>PLAN().weeks.find(w=>w.n===n);
-const logId=(aid,w,d)=>`${aid}~${w}-${d}`;
-const dayLog=(w,d,aid=S.aid)=>DATA.logs[logId(aid,w,d)];
+const logId=(aid,w,d,meso)=>`${aid}~${meso||mesoOf(DATA.athletes[aid])||'X'}~${w}-${d}`;
+const dayLog=(w,d,aid=S.aid,meso)=>DATA.logs[logId(aid,w,d,meso)];
 const dayName=d=>d.weekday?title(d.weekday):`Día ${d.n}`;
 const dayShort=d=>d.weekday?title(d.weekday).slice(0,3):`D${d.n}`;
 const phase=w=>esc(String(w.label||'').replace(/^SEMANA\s*\d+\s*[·:–-]?\s*/i,'').trim());
-const notesOf=aid=>Object.entries(DATA.notes).filter(([k,n])=>n.aid===aid).map(([id,n])=>({id,...n})).sort((a,b)=>b.at-a.at);
+const notesOf=(aid,meso)=>Object.entries(DATA.notes).filter(([k,n])=>n.aid===aid&&(!meso||(n.meso||meso)===meso)).map(([id,n])=>({id,...n})).sort((a,b)=>b.at-a.at);
 const unread=aid=>notesOf(aid).filter(n=>!n.reviewed).length;
 const APP_URL=()=>location.origin+location.pathname;
-const linkFor=aid=>Store.kind==='supa'?APP_URL():`${Store.kind==='db'?ARTIFACT_URL:location.href.split('#')[0]}#${aid}`;
-const me=()=>esc(S.email||'');
-const sessionLine=()=>Store.kind==='supa'?`<div class="muted small" style="margin-top:14px">Conectado como ${me()} · <button class="chip" data-act="logout">Cerrar sesión</button></div>`:'';
+const linkFor=aid=>Store.kind==='supa'?`${APP_URL()}?k=${(DATA.athletes[aid]||{}).token||''}`:`${Store.kind==='db'?ARTIFACT_URL:location.href.split('#')[0]}#${aid}`;
 
 // ---------- métricas (mismas definiciones que tu DASHBOARD) ----------
 function planMetrics(day){let t=0,c=0,s=0,e=0,rs=0,rn=0;
@@ -285,11 +307,11 @@ function heaviest(w,cat){let plan=null,real=null;
   w.days.forEach(d=>d.exercises.forEach((x,i)=>{ if(LIFT(x.name)!==cat) return; if(x.kg!=null) plan=Math.max(plan||0,x.kg); const st=(dayLog(w.n,d.n)||{sets:{}}).sets[i]; if(st&&st.length) real=Math.max(real||0,...st.map(s=>+s.kg||0)) }));
   return {plan,real}}
 function weekDone(w,aid=S.aid){return w.days.filter(d=>(dayLog(w.n,d.n,aid)||{}).done).length}
-function currentWeek(aid=S.aid){const W=DATA.athletes[aid].plan.weeks; let last=-1; W.forEach((w,i)=>{ if(w.days.some(d=>dayLog(w.n,d.n,aid))) last=i }); if(last<0) return W[0].n; const w=W[last]; if(w.days.every(d=>(dayLog(w.n,d.n,aid)||{}).done) && W[last+1]) return W[last+1].n; return w.n}
+function currentWeek(aid=S.aid){const W=planOf(DATA.athletes[aid]).weeks; let last=-1; W.forEach((w,i)=>{ if(w.days.some(d=>dayLog(w.n,d.n,aid))) last=i }); if(last<0) return W[0].n; const w=W[last]; if(w.days.every(d=>(dayLog(w.n,d.n,aid)||{}).done) && W[last+1]) return W[last+1].n; return w.n}
 
 // ---------- cabecera ----------
 function brand(sub,name){return `<div class="brand"><img src="${LOGO}" alt="Team Powerosso"><div class="who"><div class="eyebrow">${sub}</div><div style="font:700 20px/1.1 var(--display);text-transform:uppercase;letter-spacing:.03em">${name}</div></div></div>`}
-function athleteHeader(){const a=ATH(), P=a.plan, w=wkObj(S.week), pm=weekMetrics(w,false), done=weekDone(w);
+function athleteHeader(){const a=ATH(), P=PLAN(), w=wkObj(S.week), pm=weekMetrics(w,false), done=weekDone(w);
   const rpes=w.days.flatMap(d=>d.exercises.map(x=>x.rpeN).filter(Boolean)); const ph=phase(w);
   return `<div class="brand"><img src="${LOGO}" alt="Team Powerosso"><div class="who"><div class="eyebrow">Macrobloque · ${esc(a.name)}</div>
     <div class="macro"><h1>${esc(P.macro)}</h1><span class="pill ${w.deload?'warn':'gold'}">${w.deload?'Descarga':'Semana '+w.n}</span></div></div></div>
@@ -305,12 +327,12 @@ function vDias(){const w=wkObj(S.week), P=PLAN();
     <div><div class="t">${title(d.focus)||dayName(d)}</div><div class="small muted">${d.exercises.length} ejercicios · ${nSets} series · ${fmt(pm.ton/1000,1)} t plan</div>${L&&!done?`<div class="bar" style="margin-top:6px"><b style="width:${100*doneSets/nSets}%"></b></div>`:''}</div>
     <span class="pill ${done?'ok':L?'warn':''}">${done?'Hecho':L?'En curso':'Pendiente'}</span></button>`}).join('')}${det}`}
 
-function ensureLog(){const id=logId(S.aid,S.week,S.day); if(DATA.logs[id]&&Object.isFrozen(DATA.logs[id])) DATA.logs[id]=JSON.parse(JSON.stringify(DATA.logs[id])); if(!DATA.logs[id]) DATA.logs[id]={aid:S.aid,w:S.week,d:S.day,sets:{},done:false,date:new Date().toISOString().slice(0,10)}; return DATA.logs[id]}
+function ensureLog(){const id=logId(S.aid,S.week,S.day); if(DATA.logs[id]&&Object.isFrozen(DATA.logs[id])) DATA.logs[id]=JSON.parse(JSON.stringify(DATA.logs[id])); if(!DATA.logs[id]) DATA.logs[id]={aid:S.aid,meso:mesoOf(ATH()),w:S.week,d:S.day,sets:{},done:false,date:new Date().toISOString().slice(0,10)}; return DATA.logs[id]}
 function saveLog(){const id=logId(S.aid,S.week,S.day); const L=JSON.parse(JSON.stringify(DATA.logs[id])); L.updatedAt=Date.now(); Store.put('logs',id,L)}
 
-function exNotes(w,d,i){return notesOf(S.aid).filter(n=>n.w===w&&n.d===d&&n.ex===i)}
+function exNotes(w,d,i){return notesOf(S.aid,mesoOf(ATH())).filter(n=>n.w===w&&n.d===d&&n.ex===i)}
 function noteHtml(n,coach){const cls=/Molestia|pesado/.test(n.tag||'')?'bad':/más/.test(n.tag||'')?'ok':'';
-  return `<div class="note ${cls} ${n.reviewed&&coach?'done':''}"><div class="meta">${coach?esc(DATA.athletes[n.aid]?.name||'')+' · ':''}S${n.w} · ${esc(n.dayLabel||'Día '+n.d)} · ${fdate(n.at)}</div>
+  return `<div class="note ${cls} ${n.reviewed&&coach?'done':''}"><div class="meta">${coach?esc(DATA.athletes[n.aid]?.name||'')+' · ':''}${n.meso?esc(mesoLabel(n.meso))+' · ':''}S${n.w} · ${esc(n.dayLabel||'Día '+n.d)} · ${fdate(n.at)}</div>
   ${n.exName?`<div class="small muted">${title(n.exName)}</div>`:''}
   <div>${n.tag?`<b>${esc(n.tag)}</b>${n.text?' · ':''}`:''}${esc(n.text||'')}</div>
   ${n.reply?`<div class="reply"><span class="gold">Coach:</span> ${esc(n.reply)}</div>`:''}
@@ -391,23 +413,32 @@ function vMisNotas(){const ns=notesOf(S.aid);
 function vAlumnos(){const list=Object.entries(DATA.athletes).map(([id,a])=>({id,...a})).sort((a,b)=>(b.coach?1:0)-(a.coach?1:0)||String(a.name).localeCompare(b.name));
   return `${toastHtml()}<div class="row"><h2 class="h2">Mis alumnos</h2><span class="pill gold">${list.filter(a=>!a.coach).length} alumnos</span></div>
   ${list.length?'':`<div class="card muted">Aún no hay rutinas cargadas. Agrega tu primer alumno con su Excel.</div>`}
-  ${list.map(a=>{const cw=currentWeek(a.id), w=a.plan.weeks.find(x=>x.n===cw), un=unread(a.id), done=weekDone(w,a.id);
+  ${list.map(a=>{const P=planOf(a), un=unread(a.id), mk=mesoOf(a), avail=MESOS.filter(m=>plansOf(a)[m[0]]);
+    const cw=P&&currentWeek(a.id), w=P&&P.weeks.find(x=>x.n===cw), done=w?weekDone(w,a.id):0;
     return `<div class="card"><div class="ath"><div class="av">${esc((a.name||'?')[0])}</div><div style="min-width:0">
       <div class="row"><b>${esc(a.name)}</b>${a.coach?'<span class="pill gold">Tú</span>':un?`<span class="pill red">${un} sin revisar</span>`:'<span class="pill">Al día</span>'}</div>
-      <div class="small muted">${esc(a.plan.macro)} · Semana ${cw} · ${done}/${w.days.length} sesiones</div>
+      ${P?`<div class="small muted">Semana ${cw} · ${done}/${w.days.length} sesiones${a.file?` · ${esc(a.file)}`:''}</div>
+      <label class="f" style="margin-top:8px">Mesociclo<select class="t" data-meso="${a.id}">${avail.map(m=>`<option value="${m[0]}" ${m[0]===mk?'selected':''}>${m[1]}</option>`).join('')}</select></label>
       <div class="bar" style="margin-top:6px"><b style="width:${100*done/w.days.length}%"></b></div>
-      <div class="btns" style="margin-top:10px"><button class="btn ghost sm" data-open="${a.id}">Ver rutina</button><button class="btn ${a.coach?'goldb':'ghost'} sm" data-train="${a.id}">${a.coach?'Entrenar':'Vista alumno'}</button></div>
-      ${a.coach?'':Store.kind==='supa'?`<details style="margin-top:8px" ${a.email?'':'open'}><summary class="small gold">${a.email?`Acceso de ${esc(a.name.split(' ')[0])}: ${esc(a.email)}`:`Falta el email de ${esc(a.name.split(' ')[0])}`}</summary>
-        <label class="f" style="margin-top:6px">Email con el que entra<input class="t" type="email" id="em-${a.id}" value="${esc(a.email||'')}" placeholder="alumno@correo.com"></label>
-        <div class="btns" style="margin-top:6px"><button class="chip" data-email="${a.id}">Guardar email</button><button class="chip" data-copy="${a.id}">Copiar link de la app</button></div>
-        <div class="muted small" style="margin-top:6px">Envíale el link. Entra con ese email y la app le muestra solo su planificación.</div></details>`
-      :`<details style="margin-top:8px"><summary class="small gold">Link para ${esc(a.name.split(' ')[0])}</summary><div class="link" style="margin-top:6px">${esc(linkFor(a.id))}</div><button class="chip" style="margin-top:6px" data-copy="${a.id}">Copiar link</button></details>`}
+      <div class="btns" style="margin-top:10px"><button class="btn ghost sm" data-open="${a.id}">Ver rutina</button><button class="btn ${a.coach?'goldb':'ghost'} sm" data-train="${a.id}">${a.coach?'Entrenar':'Vista alumno'}</button></div>`
+      :`<div class="small muted">${a.file?`La planilla “${esc(a.file)}” no tiene hojas de mesociclo (Hipertrofia, Fuerza base, Volumen, Peaking o Tapering).`:'Todavía no tiene planilla.'}</div>
+      <div class="btns" style="margin-top:10px"><button class="btn ghost sm" data-open="${a.id}">Cargar planilla</button></div>`}
+      ${a.coach?'':`<details style="margin-top:8px"><summary class="small gold">Link para ${esc(a.name.split(' ')[0])}</summary><div class="link" style="margin-top:6px">${esc(linkFor(a.id))}</div><button class="chip" style="margin-top:6px" data-copy="${a.id}">Copiar link</button></details>`}
     </div></div></div>`}).join('')}
-  ${S.adding?`<div class="card"><div class="eyebrow" style="margin-bottom:8px">Nuevo alumno</div><label class="f">Nombre<input class="t" id="new-name" placeholder="Nombre y apellido"></label>${Store.kind==='supa'?`<label class="f" style="margin-top:8px">Email del alumno<input class="t" type="email" id="new-email" placeholder="alumno@correo.com"></label>`:''}
-    <label class="file" style="margin-top:10px"><input type="file" id="new-xlsx" accept=".xlsx,.xls,.xlsm"><b>Elegir su planificación (.xlsx)</b><span class="muted small" id="new-file-lbl">La app busca sola la hoja con SEMANA / DÍA / EJERCICIO.</span></label>
+  ${S.adding?`<div class="card"><div class="eyebrow" style="margin-bottom:8px">Nuevo alumno</div><label class="f">Nombre<input class="t" id="new-name" placeholder="Nombre y apellido"></label>
+    <label class="file" style="margin-top:10px"><input type="file" id="new-xlsx" accept=".xlsx,.xls,.xlsm"><b>Elegir su planificación (.xlsx)</b><span class="muted small" id="new-file-lbl">La app lee las hojas de mesociclo: Hipertrofia, Fuerza base, Volumen, Peaking y Tapering.</span></label>
     <div class="btns" style="margin-top:10px"><button class="btn ghost sm" data-act="add-cancel">Cancelar</button><button class="btn goldb sm" data-act="add-save">Crear alumno</button></div></div>`
   :`<button class="btn goldb" data-act="add">Agregar alumno</button>`}
-  ${Store.kind==='local'?`<div class="muted small">Modo sin conexión: los datos se guardan solo en este navegador.</div>`:''}${sessionLine()}`}
+  ${Store.kind==='local'?`<div class="muted small">Modo sin conexión: los datos se guardan solo en este navegador.</div>`:''}
+  ${vRespaldo()}`}
+
+function vRespaldo(){const coachId=Object.keys(DATA.athletes).find(k=>DATA.athletes[k].coach);
+  return `<div class="card"><div class="eyebrow" style="margin-bottom:6px">Respaldo y planillas</div>
+  ${Store.kind==='supa'&&coachId?`<div class="small muted">Tu link de coach (guárdalo, no lo compartas):</div><div class="link" style="margin-top:4px">${esc(linkFor(coachId))}</div><button class="chip" style="margin-top:6px" data-copy="${coachId}">Copiar mi link</button>
+  <div class="small muted" style="margin-top:12px">El actualizador lee todas las planillas de tu carpeta Alumnos, las sube a la app y guarda un respaldo en esa misma carpeta.</div>
+  <button class="btn ghost sm" style="margin-top:6px" data-act="bat">Descargar actualizador (.bat)</button>`:''}
+  <div class="small muted" style="margin-top:12px">El respaldo guarda alumnos, links, planillas, mesociclos, registros, observaciones y métricas por semana. La app lo puede volver a leer.</div>
+  <div class="btns" style="margin-top:6px"><button class="btn ghost sm" data-act="export">Exportar respaldo</button><label class="btn ghost sm" style="position:relative">Importar respaldo<input type="file" id="imp" accept=".json,application/json" style="position:absolute;inset:0;opacity:0"></label></div></div>`}
 
 function vNotasCoach(){const all=Object.entries(DATA.notes).map(([id,n])=>({id,...n})).sort((a,b)=>(a.reviewed?1:0)-(b.reviewed?1:0)||b.at-a.at);
   const f=S.nfilter||''; const shown=all.filter(n=>!f||n.aid===f);
@@ -416,14 +447,21 @@ function vNotasCoach(){const all=Object.entries(DATA.notes).map(([id,n])=>({id,.
   <div class="chips"><button class="chip" data-nf="" aria-pressed="${!f}">Todos</button>${ids.map(id=>`<button class="chip" data-nf="${id}" aria-pressed="${f===id}">${esc(DATA.athletes[id]?.name||id)}${unread(id)?` · ${unread(id)}`:''}</button>`).join('')}</div>
   ${shown.length?`<div class="card" style="display:flex;flex-direction:column;gap:12px">${shown.map(n=>noteHtml(n,true)).join('')}</div>`:`<div class="card muted">Sin observaciones todavía. Aparecen aquí cuando un alumno deja una en un ejercicio.</div>`}`}
 
-function vCoachAthlete(){const a=ATH(), w=wkObj(S.week); const sub=S.csub||'rutina';
-  const tabs=[['rutina','Rutina'],['dash','Dashboard'],['notas','Observaciones'+(unread(S.aid)?` (${unread(S.aid)})`:'')],['cargar','Cargar Excel']];
+function vCoachAthlete(){const a=ATH(), P=PLAN(); let sub=S.csub||'rutina'; if(!P&&sub!=='notas'&&sub!=='datos') sub='cargar'; const w=P&&wkObj(S.week);
+  const tabs=[['rutina','Rutina'],['dash','Dashboard'],['notas','Observaciones'+(unread(S.aid)?` (${unread(S.aid)})`:'')],['cargar','Planilla'],['datos','Datos']];
   let body='';
+  if(sub==='datos') body=`<div class="card"><label class="f">Nombre<input class="t" id="ed-name" value="${esc(a.name||'')}"></label>
+    <div class="btns" style="margin-top:8px"><button class="btn goldb sm" data-act="ed-save">Guardar nombre</button></div>
+    ${a.coach?'':`<div class="small muted" style="margin-top:14px">Link de ${esc((a.name||'').split(' ')[0])}:</div><div class="link" style="margin-top:4px">${esc(linkFor(S.aid))}</div><button class="chip" style="margin-top:6px" data-copy="${S.aid}">Copiar link</button>
+    <div style="margin-top:16px"><button class="btn ghost sm" data-act="ed-del">Eliminar alumno</button></div>`}</div>`;
   if(sub==='rutina') body=w.days.map(d=>dayTable(w,d,true)).join('');
   if(sub==='dash') body=vDash();
   if(sub==='notas'){const ns=notesOf(S.aid); body=ns.length?`<div class="card" style="display:flex;flex-direction:column;gap:12px">${ns.map(n=>noteHtml(n,true)).join('')}</div>`:`<div class="card muted">${esc(a.name)} todavía no deja observaciones.</div>`}
-  if(sub==='cargar') body=vCargar();
+  if(sub==='cargar') body=P?vCargar():`<div class="card muted">Sube su planilla de Excel. La app toma las hojas de mesociclo (Hipertrofia, Fuerza base, Volumen, Peaking, Tapering).</div><label class="file card"><input type="file" id="xlsx" accept=".xlsx,.xls,.xlsm"><b>Elegir planilla</b></label>`;
+  if(!w&&(sub==='rutina'||sub==='dash')) body='';
+  const avail=MESOS.filter(m=>plansOf(a)[m[0]]), mk=mesoOf(a);
   return `<div class="row"><button class="btn ghost sm inline" data-act="coach-back">← Alumnos</button>${a.coach?'':`<button class="chip" data-copy="${S.aid}">Copiar link</button>`}</div>
+  ${avail.length>1?`<div class="chips">${avail.map(m=>`<button class="chip" data-setmeso="${m[0]}" aria-pressed="${m[0]===mk}">${m[1]}</button>`).join('')}</div>`:''}
   ${toastHtml()}<div class="chips">${tabs.map(([k,l])=>`<button class="chip" data-csub="${k}" aria-pressed="${sub===k}">${l}</button>`).join('')}</div>${body}`}
 
 function vCargar(){const P=PLAN(), w=P.weeks, nEx=w.reduce((a,x)=>a+x.days.reduce((b,d)=>b+d.exercises.length,0),0);
@@ -434,7 +472,8 @@ function vCargar(){const P=PLAN(), w=P.weeks, nEx=w.reduce((a,x)=>a+x.days.reduc
   <div class="card"><div class="eyebrow">Hoja “${esc(P.sheet)}”</div><div style="font-weight:600;margin-top:2px">${esc(P.title)}</div>
   <div class="kpis" style="margin-top:10px"><div class="kpi"><div class="l">Semanas</div><div class="v">${w.length}</div><div class="p">S${w[0].n}–S${w[w.length-1].n}${w.some(x=>x.deload)?' · con descarga':''}</div></div><div class="kpi"><div class="l">Ejercicios</div><div class="v">${nEx}</div><div class="p">${w.reduce((a,x)=>a+x.days.length,0)} sesiones</div></div></div>
   ${params.length?`<div class="tbl" style="margin-top:10px"><table><tbody>${params.map(([k,v])=>`<tr><td>${esc(k)}</td><td class="num">${fmt(v,1)}</td></tr>`).join('')}</tbody></table></div>`:''}</div>
-  <label class="file card"><input type="file" id="xlsx" accept=".xlsx,.xls,.xlsm"><b>Reemplazar con otro Excel</b><span class="muted small">Los registros que ya hizo se mantienen.</span></label>
+  <div class="small muted">Mesociclos en la planilla: ${MESOS.filter(m=>plansOf(ATH())[m[0]]).map(m=>m[1]).join(', ')}.</div>
+  <label class="file card"><input type="file" id="xlsx" accept=".xlsx,.xls,.xlsm"><b>Reemplazar con otro Excel</b><span class="muted small">Los registros que ya hizo se mantienen.${Store.kind==='supa'?' Si usas el actualizador (.bat), basta con guardar el Excel en tu carpeta Alumnos.':''}</span></label>
   ${chk.length?`<div class="card"><div class="row" style="margin-bottom:6px"><span class="eyebrow">Revisa en la planilla</span><span class="pill red">${chk.length}</span></div>${W(chk)}</div>`:''}
   ${miss.length?`<div class="card"><div class="row" style="margin-bottom:6px"><span class="eyebrow">Datos que faltan</span><span class="pill warn">${miss.length}</span></div>${W(miss)}<div class="muted small" style="margin-top:6px">El alumno los ve “a criterio”, 1 serie, con 2 min de descanso por defecto.</div></div>`:''}`}
 
@@ -457,47 +496,126 @@ function drawTimer(){const T=S.timer; if(!T) return; const left=Math.max(0,Math.
   <div class="btns3"><button class="btn ghost sm" data-t="-15">−15 s</button><button class="btn ghost sm" data-t="+30">+30 s</button><button class="btn sm" data-t="skip">${left===0?'Listo':'Saltar'}</button></div></div>`}
 
 // ---------- render ----------
-function vLogin(){return `<div class="splash"><img src="${LOGO}" alt="Team Powerosso"><h2 class="h2">Powerosso App</h2>${toastHtml()}
-  ${S.sent?`<div class="muted">Te enviamos un correo a <b>${esc(S.sent)}</b>. Ábrelo en este mismo teléfono y toca el link para entrar.</div>
-    <label class="f" style="margin-top:12px;text-align:left">¿El correo trae un código? Escríbelo aquí<input class="t" id="otp" inputmode="numeric" autocomplete="one-time-code" placeholder="123456"></label>
-    <div class="btns" style="margin-top:10px"><button class="btn ghost sm" data-act="login-back">Usar otro email</button><button class="btn goldb sm" data-act="login-code">Entrar con código</button></div>`
-  :`<div class="muted">Entra con el email que le diste a tu coach. Te llega un link para entrar, sin contraseña.</div>
-    <label class="f" style="margin-top:12px;text-align:left">Tu email<input class="t" type="email" id="login-email" autocomplete="email" placeholder="tu@correo.com"></label>
-    <button class="btn goldb" style="margin-top:10px" data-act="login-send">Enviarme el link</button>`}</div>`}
-
 function render(){
   const hdr=$('#hdr'), nav=$('#nav'), ban=$('#banner');
   if(S.mode==='loading') return;
-  if(S.mode==='login'){hdr.hidden=true;nav.hidden=true;ban.innerHTML='';$('#main').innerHTML=vLogin();return}
-  if(S.mode==='nolink'){hdr.hidden=true;nav.hidden=true;ban.innerHTML='';$('#main').innerHTML=`<div class="splash"><img src="${LOGO}" alt="Team Powerosso"><h2 class="h2">Powerosso App</h2>${toastHtml()}<div class="muted">${Store.kind==='supa'?`El email ${me()} todavía no tiene una planificación asignada. Pídele a tu coach que lo agregue.`:'Abre el link personal que te envió tu coach para ver tu planificación.'}</div>${sessionLine()}</div>`;return}
+  if(S.mode==='nolink'){hdr.hidden=true;nav.hidden=true;ban.innerHTML='';$('#main').innerHTML=`<div class="splash"><img src="${LOGO}" alt="Team Powerosso"><h2 class="h2">Powerosso App</h2><div class="muted">${S.badLink?'Este link no es válido o fue reemplazado. Pídele a tu coach tu link actual.':S.netErr?'No se pudo conectar. Revisa tu internet y vuelve a abrir el link.':'Abre el link personal que te envió tu coach para ver tu planificación.'}</div></div>`;return}
   if(S.mode==='athlete'){
     if(!ATH()){S.mode=S.isCoach?'coach':'nolink';return render()}
+    if(!PLAN()){hdr.hidden=true;nav.hidden=true;$('#main').innerHTML=`<div class="splash"><img src="${LOGO}" alt="Team Powerosso"><h2 class="h2">Hola ${esc((ATH().name||'').split(' ')[0])}</h2><div class="muted">Tu coach todavía no carga tu planificación.</div></div>`;return}
     if(S.week==null||!wkObj(S.week)) S.week=currentWeek();
     ban.innerHTML=S.isCoach?`<div class="banner"><span>Estás viendo la app como <b>${esc(ATH().name)}</b></span><button class="chip" data-act="to-coach">Volver al panel</button></div>`:'';
     hdr.hidden=false; hdr.innerHTML=athleteHeader();
     const un=notesOf(S.aid).filter(n=>n.reply&&!n.seen).length;
-    $('#main').innerHTML=S.tab==='dashboard'?vDash():S.tab==='notas'?vMisNotas()+(S.isCoach?'':sessionLine()):S.view==='sesion'?vSesion():S.view==='resumen'?vResumen():vDias();
+    $('#main').innerHTML=S.tab==='dashboard'?vDash():S.tab==='notas'?vMisNotas():S.view==='sesion'?vSesion():S.view==='resumen'?vResumen():vDias();
     nav.hidden=false; $('#tabs').innerHTML=[['entrenar','Entrenar'],['dashboard','Dashboard'],['notas','Mis notas']].map(([k,l])=>`<button data-tab="${k}" aria-current="${S.tab===k}">${l}${k==='notas'&&un?`<span class="badge">${un}</span>`:''}</button>`).join('');
   } else { // coach
     ban.innerHTML='';
-    if(S.ctab==='alumno'&&ATH()){ if(S.week==null||!wkObj(S.week)) S.week=currentWeek(); hdr.hidden=false; hdr.innerHTML=athleteHeader(); $('#main').innerHTML=vCoachAthlete() }
+    if(S.ctab==='alumno'&&ATH()){ if(PLAN()){ if(S.week==null||!wkObj(S.week)) S.week=currentWeek(); hdr.hidden=false; hdr.innerHTML=athleteHeader() } else { hdr.hidden=false; hdr.innerHTML=brand('Team Powerosso',esc(ATH().name)) } $('#main').innerHTML=vCoachAthlete() }
     else { if(S.ctab==='alumno') S.ctab='alumnos'; hdr.hidden=false; hdr.innerHTML=brand('Team Powerosso','Panel del coach'); $('#main').innerHTML=S.ctab==='notas'?vNotasCoach():vAlumnos() }
     const un=Object.values(DATA.notes).filter(n=>!n.reviewed).length;
     nav.hidden=false; $('#tabs').innerHTML=[['alumnos','Alumnos'],['notas','Observaciones']].map(([k,l])=>`<button data-ctab="${k}" aria-current="${S.ctab===k||(k==='alumnos'&&S.ctab==='alumno')}">${l}${k==='notas'&&un?`<span class="badge">${un}</span>`:''}</button>`).join('');
   }
-  const f=$('#xlsx'); if(f) f.addEventListener('change',e=>readXlsx(e.target.files[0],p=>{const a=JSON.parse(JSON.stringify(ATH())); a.plan=p; a.updatedAt=Date.now(); Store.put('athletes',S.aid,a); S.week=null; S.importMsg=`Cargada la hoja “${p.sheet}”: ${p.weeks.length} semanas.`; render()}));
-  const nf=$('#new-xlsx'); if(nf) nf.addEventListener('change',e=>{const file=e.target.files[0]; if(!file) return; readXlsx(file,p=>{S.pending=p; $('#new-file-lbl').textContent=`Lista: hoja “${p.sheet}”, ${p.weeks.length} semanas.`})});
+  const f=$('#xlsx'); if(f) f.addEventListener('change',e=>readXlsx(e.target.files[0],r=>setPlanilla(S.aid,r)));
+  const nf=$('#new-xlsx'); if(nf) nf.addEventListener('change',e=>{const file=e.target.files[0]; if(!file) return; readXlsx(file,r=>{S.pending=r; $('#new-file-lbl').textContent=`Lista: ${Object.keys(r.plans).map(mesoLabel).join(', ')}.`})});
+  const im=$('#imp'); if(im) im.addEventListener('change',e=>importBackup(e.target.files[0]));
 }
 function nextLabel(){const d=wkObj(S.week).days.find(x=>x.n===S.day), x=d.exercises[S.ex], n=(ensureLog().sets[S.ex]||[]).length;
   if(n<x.sets) return `Siguiente: serie ${n+1} de ${x.sets} · ${title(x.name)}`; const nx=d.exercises[S.ex+1]; return nx?`Siguiente ejercicio: ${title(nx.name)}`:'Última serie del día'}
 function readXlsx(file,ok){ if(!file) return; if(typeof XLSX==='undefined'){flash('No se pudo cargar el lector de Excel. Revisa tu conexión.',true);return}
-  const rd=new FileReader(); rd.onload=()=>{try{const wb=XLSX.read(rd.result,{type:'array'}); let best=null;
-    for(const n of wb.SheetNames){const ws=wb.Sheets[n]; if(!ws['!ref']) continue; const rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null});
-      const p=parsePlan(rows,n,XLSX.utils.decode_range(ws['!ref']).s.r+1); const ex=p.weeks.reduce((a,w)=>a+w.days.reduce((b,d)=>b+d.exercises.length,0),0);
-      if(ex && (!best||ex>best.ex)) best={p,ex}}
-    if(!best) return flash(`No encontré una hoja con el formato SEMANA / DÍA / EJERCICIO en “${file.name}”.`,true);
-    ok(best.p)}catch(err){flash('No pude leer ese archivo. ¿Es un .xlsx?',true)}};
+  const rd=new FileReader(); rd.onload=()=>{let r; try{ r=wbPlans(XLSX.read(rd.result,{type:'array'})) }catch(err){return flash('No pude leer ese archivo. ¿Es un .xlsx?',true)}
+    if(!Object.keys(r.plans).length) return flash(`“${file.name}” no tiene hojas de mesociclo con el formato SEMANA / DÍA / EJERCICIO. Los nombres de hoja que cuentan contienen Hipertrofia, Fuerza base, Volumen, Peaking o Tapering.`,true);
+    const u=new Uint8Array(rd.result); let bin=''; for(let i=0;i<u.length;i+=0x8000) bin+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000));
+    ok({...r,name:file.name,mtime:new Date(file.lastModified||Date.now()).toISOString(),b64:btoa(bin)}) };
   rd.readAsArrayBuffer(file)}
+// asigna una planilla leída a un alumno
+async function setPlanilla(aid,r){ const ms=Object.keys(r.plans).map(mesoLabel).join(', ');
+  if(Store.kind==='supa'){ try{ flash('Subiendo planilla…'); await rpc('pw_upload',{p_token:Store.token,p_name:r.name,p_mtime:r.mtime,p_b64:r.b64,p_aid:aid}); await Store.pull(true) }catch(e){ return flash('No se pudo subir la planilla. Revisa tu conexión.',true) } }
+  else { const a=JSON.parse(JSON.stringify(DATA.athletes[aid])); delete a.plan; a.plans=r.plans; a.file=r.name; a.updatedAt=Date.now(); await Store.put('athletes',aid,a) }
+  S.week=null; S.importMsg=`Planilla “${r.name}” cargada: ${ms}.`; S.toast=''; render() }
+
+// ---------- respaldo ----------
+function summary(){ const out={}; for(const [aid,a] of Object.entries(DATA.athletes)){ const o=out[a.name||aid]={};
+    for(const [mk,plan] of Object.entries(plansOf(a))) o[mesoLabel(mk)]=plan.weeks.map(w=>{ const t={ton:0,carga:0,series:0,eff:0,_r:0,_n:0}; let done=0;
+      w.days.forEach(d=>{const L=dayLog(w.n,d.n,aid,mk); if(L&&L.done) done++; const m=realMetrics(L); for(const k in t)t[k]+=m[k]});
+      return {semana:w.n,sesiones:`${done}/${w.days.length}`,tonelaje:Math.round(t.ton),carga:Math.round(t.carga),series:t.series,seriesEfectivas:t.eff,rpeMedio:t._n?+(t._r/t._n).toFixed(2):null} }) }
+  return out }
+async function exportBackup(){ let b;
+  try{ if(Store.kind==='supa') b=await rpc('pw_export',{p_token:Store.token}); else b={app:'powerosso',version:1,exportedAt:new Date().toISOString(),athletes:DATA.athletes,files:{},logs:DATA.logs,notes:DATA.notes} }
+  catch(e){ return flash('No se pudo exportar. Revisa tu conexión.',true) }
+  b.resumen=summary(); const blob=new Blob([JSON.stringify(b,null,1)],{type:'application/json'}), u=URL.createObjectURL(blob), l=document.createElement('a');
+  l.href=u; l.download=`powerosso-respaldo-${new Date().toISOString().slice(0,10)}.json`; document.body.appendChild(l); l.click(); setTimeout(()=>{URL.revokeObjectURL(u);l.remove()},1000); flash('Respaldo descargado.') }
+function importBackup(file){ if(!file) return; const rd=new FileReader(); rd.onload=async()=>{ let b; try{ b=JSON.parse(rd.result) }catch(e){ return flash('Ese archivo no es un respaldo de Powerosso.',true) }
+    if(!b||b.app!=='powerosso'||!b.athletes) return flash('Ese archivo no es un respaldo de Powerosso.',true);
+    const n=Object.keys(b.athletes).length; if(!confirm(`Restaurar ${n} alumnos, ${Object.keys(b.logs||{}).length} sesiones y ${Object.keys(b.notes||{}).length} observaciones? Lo que ya existe con el mismo nombre se reemplaza.`)) return;
+    try{ if(Store.kind==='supa'){ flash('Restaurando…'); await rpc('pw_import',{p_token:Store.token,p_bundle:{athletes:b.athletes,files:b.files||{},logs:b.logs||{},notes:b.notes||{}}}); await Store.pull(true) }
+      else for(const c of ['athletes','logs','notes']) for(const [k,v] of Object.entries(b[c]||{})){ const x={...v}; if(c==='athletes') delete x.token; await Store.put(c,k,x) }
+      flash(`Respaldo restaurado: ${n} alumnos.`) }catch(e){ flash('No se pudo restaurar el respaldo.',true) } };
+  rd.readAsText(file) }
+function downloadBat(){ const coach=Object.values(DATA.athletes).find(a=>a.coach)||{}; const q=v=>String(v).replace(/'/g,"''");
+  const txt=BAT.replace('__URL__',q(SB.url)).replace('__KEY__',q(SB.anonKey)).replace('__TOKEN__',q(coach.token||Store.token)).replace('__APP__',q(APP_URL())).replace(/\r?\n/g,'\r\n');
+  const u=URL.createObjectURL(new Blob([txt],{type:'application/octet-stream'})), l=document.createElement('a'); l.href=u; l.download='actualizar-powerosso.bat'; document.body.appendChild(l); l.click(); setTimeout(()=>{URL.revokeObjectURL(u);l.remove()},1000);
+  flash('Guarda el .bat donde quieras y ábrelo con doble clic cuando cambies una planilla.') }
+const BAT=`<# :
+@echo off
+rem Powerosso: sube todas las planillas de la carpeta Alumnos a la app y guarda un respaldo.
+rem Doble clic para ejecutar. Las lineas de abajo son PowerShell (viene incluido en Windows).
+powershell -NoProfile -ExecutionPolicy Bypass -Command "iex ([IO.File]::ReadAllText('%~f0'))"
+echo.
+pause
+exit /b
+#>
+$ErrorActionPreference = 'Stop'
+# ---- configuracion ----
+$Carpeta = 'C:\\Users\\benja\\OneDrive\\Desktop\\Alumnos'
+$Url     = '__URL__'
+$Key     = '__KEY__'
+$Token   = '__TOKEN__'
+$App     = '__APP__'
+# -----------------------
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$Headers = @{ apikey = $Key; Authorization = "Bearer $Key" }
+function Llamar($fn, $body) {
+  $json  = $body | ConvertTo-Json -Compress -Depth 6
+  $bytes = [Text.Encoding]::UTF8.GetBytes($json)
+  Invoke-WebRequest -UseBasicParsing -Method Post -Uri "$Url/rest/v1/rpc/$fn" -Headers $Headers -ContentType 'application/json; charset=utf-8' -Body $bytes
+}
+Write-Host ''
+Write-Host '  TEAM POWEROSSO - actualizar planillas' -ForegroundColor Yellow
+Write-Host "  Carpeta: $Carpeta"
+Write-Host ''
+if (-not (Test-Path -LiteralPath $Carpeta)) { Write-Host '  No encuentro la carpeta. Revisa la ruta en este archivo (linea $Carpeta).' -ForegroundColor Red; return }
+$archivos = Get-ChildItem -LiteralPath $Carpeta -File | Where-Object { $_.Extension -match '^\\.xls[xm]$' -and $_.Name -notlike '~$*' }
+if (-not $archivos) { Write-Host '  No hay planillas .xlsx en la carpeta.'; return }
+$ok = 0
+foreach ($f in $archivos) {
+  try {
+    $fs = [IO.File]::Open($f.FullName, 'Open', 'Read', 'ReadWrite')   # funciona aunque el Excel este abierto
+    try { $ms = New-Object IO.MemoryStream; $fs.CopyTo($ms); $bytes = $ms.ToArray() } finally { $fs.Close() }
+    $r = Llamar 'pw_upload' @{ p_token = $Token; p_name = $f.Name; p_mtime = $f.LastWriteTimeUtc.ToString('o'); p_b64 = [Convert]::ToBase64String($bytes) }
+    $res = $r.Content | ConvertFrom-Json
+    $extra = ''; if ($res.new) { $extra = '  (alumno nuevo: ponle nombre en la app)' }
+    Write-Host ('  OK     ' + $f.Name + '  ->  ' + $res.athlete + $extra) -ForegroundColor Green
+    $ok++
+  } catch {
+    Write-Host ('  ERROR  ' + $f.Name + ': ' + $_.Exception.Message) -ForegroundColor Red
+  }
+}
+Write-Host ''
+Write-Host "  $ok de $($archivos.Count) planillas actualizadas."
+try {
+  $dir = Join-Path $Carpeta 'Respaldos Powerosso'
+  New-Item -ItemType Directory -Force -Path $dir | Out-Null
+  $r = Llamar 'pw_export' @{ p_token = $Token }
+  $ruta = Join-Path $dir ('powerosso-respaldo-' + (Get-Date -Format 'yyyy-MM-dd') + '.json')
+  [IO.File]::WriteAllBytes($ruta, $r.RawContentStream.ToArray())
+  Write-Host "  Respaldo guardado en: $ruta"
+} catch {
+  Write-Host ('  No se pudo guardar el respaldo: ' + $_.Exception.Message) -ForegroundColor Red
+}
+Write-Host ''
+Write-Host "  App: $App"
+`;
 function copy(txt){try{navigator.clipboard.writeText(txt).then(()=>flash('Link copiado.')).catch(()=>flash('Mantén presionado el link para copiarlo.'))}catch(e){flash('Mantén presionado el link para copiarlo.')}}
 
 document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b) return; const a=b.dataset;
@@ -509,9 +627,7 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
   if(a.open){S.aid=a.open; S.ctab='alumno'; S.csub='rutina'; S.week=null; S.toast=''; S.importMsg=null; return render()}
   if(a.train){location.hash=a.train; return}
   if(a.copy) return copy(linkFor(a.copy));
-  if(a.email){ const v=($('#em-'+a.email).value||'').trim().toLowerCase(); if(v&&!/^\S+@\S+\.\S+$/.test(v)) return flash('Revisa el email.',true);
-    if(v&&Object.entries(DATA.athletes).some(([k,x])=>k!==a.email&&(x.email||'')===v)) return flash('Ese email ya está asignado a otro alumno.',true);
-    const at=JSON.parse(JSON.stringify(DATA.athletes[a.email])); at.email=v; Store.put('athletes',a.email,at); return flash(v?`Email guardado. ${at.name.split(' ')[0]} ya puede entrar con ${v}.`:'Email borrado.') }
+  if(a.setmeso) return setMeso(S.aid,a.setmeso);
   if(a.csub){S.csub=a.csub; S.importMsg=null; return render()}
   if(a.nf!==undefined){S.nfilter=a.nf; return render()}
   if(a.review){const n=DATA.notes[a.review]; Store.put('notes',a.review,{...n,reviewed:!n.reviewed}); return render()}
@@ -523,12 +639,6 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
   const d=S.day&&PLAN()&&wkObj(S.week)&&wkObj(S.week).days.find(x=>x.n===S.day);
   switch(act){
     case 'back': S.view='dias'; S.toast=''; return render();
-    case 'login-send': { const em=($('#login-email').value||'').trim().toLowerCase(); if(!/^\S+@\S+\.\S+$/.test(em)) return flash('Escribe tu email.',true);
-      b.disabled=true; Store.sb.auth.signInWithOtp({email:em,options:{emailRedirectTo:APP_URL()}}).then(({error})=>{ if(error){ b.disabled=false; return flash(/rate|seconds/i.test(error.message)?'Espera un minuto antes de pedir otro link.':'No se pudo enviar el correo. Intenta de nuevo.',true)} S.sent=em; S.toast=''; render() }); return }
-    case 'login-back': S.sent=null; S.toast=''; return render();
-    case 'login-code': { const tk=($('#otp').value||'').trim(); if(!/^\d{6,}$/.test(tk)) return flash('Escribe el código del correo.',true);
-      Store.sb.auth.verifyOtp({email:S.sent,token:tk,type:'email'}).then(({error})=>{ if(error) return flash('Ese código no sirve o ya venció. Pide otro link.',true); location.reload() }); return }
-    case 'logout': Store.sb.auth.signOut().then(()=>{ history.replaceState(null,'',APP_URL()); location.reload() }); return;
     case 'set': { const x=d.exercises[S.ex], L=ensureLog(); const num=v=>parseFloat(String(v).replace(',','.'));
       const kg=num($('#in-kg').value), reps=parseInt($('#in-reps').value), rpe=num($('#in-rpe').value);
       if(isNaN(reps)) return flash('Anota cuántas repeticiones hiciste.',true);
@@ -543,16 +653,21 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
     case 'obs-cancel': S.obsOpen=false; return render();
     case 'obs-save': { const txt=($('#obs-txt').value||'').trim(); if(!S.obsTag&&!txt) return flash('Elige una opción o escribe algo.',true);
       const x=d.exercises[S.ex], id=`${S.aid}~${Date.now().toString(36)}${rnd()}`;
-      Store.put('notes',id,{aid:S.aid,w:S.week,d:S.day,dayLabel:dayName(d),ex:S.ex,exName:x.name,tag:S.obsTag||'',text:txt,at:Date.now(),reviewed:false,reply:''});
+      Store.put('notes',id,{aid:S.aid,meso:mesoOf(ATH()),w:S.week,d:S.day,dayLabel:dayName(d),ex:S.ex,exName:x.name,tag:S.obsTag||'',text:txt,at:Date.now(),reviewed:false,reply:''});
       S.obsOpen=false; S.toast='Observación guardada. Tu coach la verá en su panel.'; S.toastErr=false; return render() }
     case 'to-coach': history.replaceState(null,'',location.pathname+location.search); return route();
     case 'coach-back': S.ctab='alumnos'; S.toast=''; return render();
     case 'add': S.adding=true; S.pending=null; return render();
     case 'add-cancel': S.adding=false; return render();
     case 'add-save': { const name=($('#new-name').value||'').trim(); if(!name) return flash('Escribe el nombre del alumno.',true); if(!S.pending) return flash('Elige su Excel antes de crear el alumno.',true);
-      const email=(($('#new-email')||{}).value||'').trim().toLowerCase(); if(email&&!/^\S+@\S+\.\S+$/.test(email)) return flash('Revisa el email del alumno.',true);
-      if(email&&Object.values(DATA.athletes).some(x=>(x.email||'')===email)) return flash('Ese email ya está asignado a otro alumno.',true);
-      const id=`${slug(name.split(' ')[0])}-${rnd()}`; Store.put('athletes',id,{name,email,plan:S.pending,coach:false,createdAt:Date.now()}); S.adding=false; S.pending=null; S.toast=`${name} agregado. Copia su link y envíaselo.`; S.toastErr=false; return render() }
+      const id=`${slug(name.split(' ')[0])}-${rnd()}`, r=S.pending; S.adding=false; S.pending=null;
+      Promise.resolve(Store.put('athletes',id,{name,coach:false,createdAt:Date.now()})).then(()=>setPlanilla(id,r)).then(()=>{ if(Store.kind==='supa') return Store.pull(true) }).then(()=>flash(`${name} agregado. Copia su link y envíaselo.`)); return }
+    case 'ed-save': { const nm=($('#ed-name').value||'').trim(); if(!nm) return flash('Escribe un nombre.',true); const at=JSON.parse(JSON.stringify(ATH())); at.name=nm; Store.put('athletes',S.aid,at); return flash('Nombre guardado.') }
+    case 'ed-del': { const at=ATH(); if(!confirm(`¿Eliminar a ${at.name} con todos sus registros y observaciones? Exporta un respaldo antes si quieres guardarlos.`)) return;
+      Store.del('athletes',S.aid); Object.keys(DATA.logs).filter(k=>DATA.logs[k].aid===S.aid).forEach(k=>Store.kind==='supa'?delete DATA.logs[k]:Store.del('logs',k)); Object.keys(DATA.notes).filter(k=>DATA.notes[k].aid===S.aid).forEach(k=>Store.kind==='supa'?delete DATA.notes[k]:Store.del('notes',k));
+      S.ctab='alumnos'; return flash(`${at.name} eliminado.`) }
+    case 'export': return exportBackup();
+    case 'bat': return downloadBat();
     case 'reply-cancel': S.replyTo=null; return render();
     case 'reply-save': { const n=DATA.notes[a.id], txt=($('#reply-txt').value||'').trim(); Store.put('notes',a.id,{...n,reply:txt,reviewed:true,seen:false}); S.replyTo=null; return render() }
   }
@@ -560,25 +675,28 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
 
 function route(){ const h=decodeURIComponent((location.hash||'').slice(1));
   stopTimer(); S.toast=''; S.view='dias'; S.tab='entrenar'; S.week=null;
-  if(h&&DATA.athletes[h]){S.mode='athlete'; S.aid=h}
+  if(h&&DATA.athletes[h]&&(Store.kind!=='supa'||S.isCoach||h===S.myAid)){S.mode='athlete'; S.aid=h}
   else if(!S.isCoach&&S.myAid&&DATA.athletes[S.myAid]){S.mode='athlete'; S.aid=S.myAid}
   else if(S.isCoach){S.mode='coach'; if(S.ctab!=='notas') S.ctab='alumnos'}
   else S.mode=h&&S.ready<3?'loading':'nolink';
   render()}
 window.addEventListener('hashchange',route);
+function setMeso(aid,k){ const at=JSON.parse(JSON.stringify(DATA.athletes[aid])); at.meso=k; Store.put('athletes',aid,at); if(aid===S.aid) S.week=null; flash(`${at.name.split(' ')[0]} ahora está en ${mesoLabel(k)}.`) }
+document.addEventListener('change',e=>{const t=e.target; if(t.dataset&&t.dataset.meso) setMeso(t.dataset.meso,t.value)});
 // no borrar lo que alguien está escribiendo cuando llegan datos nuevos
 function softRender(){const ae=document.activeElement; if(ae&&/INPUT|TEXTAREA/.test(ae.tagName)&&ae.closest('main')){S.dirty=true;return} render()}
 document.addEventListener('focusout',()=>setTimeout(()=>{const ae=document.activeElement; if(S.dirty&&!(ae&&/INPUT|TEXTAREA/.test(ae.tagName))){S.dirty=false;render()}},50));
 
 (async function boot(){
   await Store.init();
-  if(Store.kind==='supa'){ const {data}=await Store.sb.auth.getSession(); const ses=data&&data.session;
-    if(/[?&]code=/.test(location.search)) history.replaceState(null,'',APP_URL()+location.hash);
-    if(!ses){ S.mode='login'; render(); return }
-    S.email=(ses.user.email||'').toLowerCase() }
-  else if(Store.kind==='db'){ let u=null; try{u=await window.claude.use('user')}catch(e){} S.isCoach=u?await u.isOwner():false }
+  if(Store.kind==='supa'){
+    if(!Store.token){ S.mode='nolink'; return render() }
+    try{ await Store.pull(true) }catch(e){ S.mode='nolink'; if(e.status) S.badLink=true; else S.netErr=true; return render() }
+    S.ready=3; route();
+    const again=()=>{ if(document.hidden) return; Store.pull(false).then(ch=>ch&&softRender()).catch(()=>{}) };
+    setInterval(again,20000); document.addEventListener('visibilitychange',again); return }
+  if(Store.kind==='db'){ let u=null; try{u=await window.claude.use('user')}catch(e){} S.isCoach=u?await u.isOwner():false }
   else S.isCoach=true;
-  const who=()=>{ if(Store.kind!=='supa') return; const mine=Object.entries(DATA.athletes).find(([k,a])=>(a.email||'')===S.email); S.myAid=mine?mine[0]:null; S.isCoach=!!(mine&&mine[1].coach) };
-  const loaded=new Set(); ['athletes','logs','notes'].forEach(c=>Store.listen(c,o=>{DATA[c]=o; if(c==='athletes') who(); if(loaded.size<3){ loaded.add(c); S.ready=loaded.size; if(loaded.size===3) route() } else softRender()}));
+  const loaded=new Set(); ['athletes','logs','notes'].forEach(c=>Store.listen(c,o=>{DATA[c]=o; if(loaded.size<3){ loaded.add(c); S.ready=loaded.size; if(loaded.size===3) route() } else softRender()}));
 })();
 </script>

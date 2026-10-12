@@ -6,8 +6,10 @@ function parsePlan(rows, sheetName, firstRow){
   const up = v => S(v).toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
   const plan = {sheet: sheetName, macro: sheetName, title:'', details:'', params:{}, weeks:[], warnings:[]};
   let week=null, day=null, cols=null, titleCol=1;
-  // La columna del título es la primera que contiene "SEMANA n"
-  for (const r of rows){ const i=(r||[]).findIndex(c=>/^SEMANA\s*\d+/.test(up(c))); if(i>=0){titleCol=i;break;} }
+  // La columna del título es la de la primera cabecera "EJERCICIO" (si no hay, la primera con "SEMANA n")
+  let found=false;
+  for (const r of rows){ const i=(r||[]).findIndex(c=>up(c)==='EJERCICIO'); if(i>=0){titleCol=i;found=true;break;} }
+  if(!found) for (const r of rows){ const i=(r||[]).findIndex(c=>/^SEMANA\s*\d+/.test(up(c))); if(i>=0){titleCol=i;break;} }
   const rest = txt => {
     const t = up(txt); if(!t) return null;
     const m = t.match(/(\d+(?:[.,]\d+)?)\s*(?:-|–|A)?\s*(\d+(?:[.,]\d+)?)?\s*(MIN|S|SEG)/);
