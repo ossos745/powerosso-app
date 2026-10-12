@@ -147,6 +147,8 @@ details summary::-webkit-details-marker{display:none}
 <div class="timer" id="timer" hidden></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script>
 // Powerosso: lector del formato de planificación (hoja tipo "HIPERTROFIA").
 // Recibe una matriz de filas (array de arrays, como XLSX.utils.sheet_to_json(ws,{header:1})) y devuelve el plan.
@@ -218,16 +220,28 @@ const ARTIFACT_URL='https://claude.ai/artifact/4MaRbmVh4f9RWDxb79btCP';
 const OBS=['Intensidad perfecta','Podría hacer más','Muy pesado','Molestia / dolor','Duda técnica'];
 const EFF=7; // serie efectiva: RPE >= 7, igual que tu hoja DATOS ANÁLISIS
 
-// ---------- almacenamiento: base compartida (db) o este navegador ----------
-const Store={kind:'local',db:null,q:{},subs:[],
-  async init(){ let db=null; try{ if(window.claude&&window.claude.use) db=await window.claude.use('db') }catch(e){} if(db){this.kind='db';this.db=db} },
+// ---------- almacenamiento: Supabase (versión GitHub), base del artifact (db) o este navegador ----------
+const SB=window.POWEROSSO_SUPABASE||{};
+const SB_ERR=e=>flash(e&&/row-level security|permission/i.test(e.message||'')?'No tienes permiso para guardar esto.':'No se pudo guardar. Revisa tu conexión.',true);
+const Store={kind:'local',db:null,sb:null,q:{},subs:[],cache:{},
+  async init(){ if(SB.url&&SB.anonKey&&window.supabase){ this.kind='supa'; this.sb=window.supabase.createClient(SB.url,SB.anonKey,{auth:{flowType:'pkce',persistSession:true,detectSessionInUrl:true}}); return }
+    let db=null; try{ if(window.claude&&window.claude.use) db=await window.claude.use('db') }catch(e){} if(db){this.kind='db';this.db=db} },
+  // filas de Supabase <-> documentos de la app
+  fromRow(coll,r){ return coll==='athletes'?{...r.data,email:r.email||'',coach:!!r.coach}:r.data },
+  toRow(coll,id,b){ const t=new Date().toISOString(); return coll==='athletes'?{id,email:(b.email||'').trim().toLowerCase()||null,coach:!!b.coach,data:b,updated_at:t}:{id,aid:b.aid,data:b,updated_at:t} },
+  listenSupa(coll,cb){ const o=this.cache[coll]={}, cols=coll==='athletes'?'id,email,coach,data':'id,data';
+    const load=async()=>{ let from=0; for(;;){ const {data,error}=await this.sb.from(coll).select(cols).range(from,from+999); if(error){flash('No se pudieron cargar los datos. Recarga la página.',true);break} data.forEach(r=>o[r.id]=this.fromRow(coll,r)); if(data.length<1000) break; from+=1000 } cb(Object.assign({},o)) };
+    this.sb.channel('rt-'+coll).on('postgres_changes',{event:'*',schema:'public',table:coll},p=>{ if(p.eventType==='DELETE') delete o[p.old.id]; else o[p.new.id]=this.fromRow(coll,p.new); cb(Object.assign({},o)) }).subscribe();
+    load() },
   local(){try{return JSON.parse(localStorage.getItem('powerosso.v3'))||{}}catch(e){return {}}},
   saveLocal(o){try{localStorage.setItem('powerosso.v3',JSON.stringify(o))}catch(e){}},
-  listen(coll,cb){ if(this.kind==='db'){ return this.db.collection(coll).onSnapshot(s=>{const o={}; s.docs.forEach(d=>o[d.id]=d.data()); cb(o)}, e=>{flash('Se perdió la conexión con los datos. Recarga la página.',true)}) }
+  listen(coll,cb){ if(this.kind==='supa') return this.listenSupa(coll,cb); if(this.kind==='db'){ return this.db.collection(coll).onSnapshot(s=>{const o={}; s.docs.forEach(d=>o[d.id]=d.data()); cb(o)}, e=>{flash('Se perdió la conexión con los datos. Recarga la página.',true)}) }
     const f=()=>cb(Object.assign({},this.local()[coll]||{})); this.subs.push(f); f(); },
-  put(coll,id,body){ DATA[coll][id]=body; if(this.kind==='db'){ const k=coll+'/'+id; this.q[k]=(this.q[k]||Promise.resolve()).then(()=>this.db.collection(coll).doc(id).set(body)).catch(e=>flash(e&&e.code==='invalid_argument'?'No tienes permiso para guardar aquí. Pide a tu coach que te comparta la app como editor.':e&&e.code==='quota_exceeded'?'La base de datos está llena.':'No se pudo guardar. Revisa tu conexión.',true)); return this.q[k] }
+  put(coll,id,body){ DATA[coll][id]=body; if(this.kind==='supa'){ this.cache[coll][id]=body; const k=coll+'/'+id; this.q[k]=(this.q[k]||Promise.resolve()).then(async()=>{const {error}=await this.sb.from(coll).upsert(this.toRow(coll,id,body)); if(error) SB_ERR(error)}); return this.q[k] }
+    if(this.kind==='db'){ const k=coll+'/'+id; this.q[k]=(this.q[k]||Promise.resolve()).then(()=>this.db.collection(coll).doc(id).set(body)).catch(e=>flash(e&&e.code==='invalid_argument'?'No tienes permiso para guardar aquí. Pide a tu coach que te comparta la app como editor.':e&&e.code==='quota_exceeded'?'La base de datos está llena.':'No se pudo guardar. Revisa tu conexión.',true)); return this.q[k] }
     const o=this.local(); (o[coll]=o[coll]||{})[id]=body; this.saveLocal(o); return Promise.resolve() },
-  del(coll,id){ delete DATA[coll][id]; if(this.kind==='db') return this.db.collection(coll).doc(id).delete().catch(()=>{}); const o=this.local(); if(o[coll]) delete o[coll][id]; this.saveLocal(o); return Promise.resolve() }
+  del(coll,id){ delete DATA[coll][id]; if(this.kind==='supa'){ delete this.cache[coll][id]; return this.sb.from(coll).delete().eq('id',id).then(({error})=>error&&SB_ERR(error)) }
+    if(this.kind==='db') return this.db.collection(coll).doc(id).delete().catch(()=>{}); const o=this.local(); if(o[coll]) delete o[coll][id]; this.saveLocal(o); return Promise.resolve() }
 };
 const DATA={athletes:{},logs:{},notes:{}};
 const S={ready:0, isCoach:false, mode:'loading', aid:null, coachAid:null, tab:'entrenar', ctab:'alumnos', view:'dias', week:null, day:null, ex:0, toast:'', toastErr:false, confirm:null, importMsg:null, obsOpen:false, obsTag:null, timer:null, pending:null, adding:false};
@@ -253,7 +267,10 @@ const dayShort=d=>d.weekday?title(d.weekday).slice(0,3):`D${d.n}`;
 const phase=w=>esc(String(w.label||'').replace(/^SEMANA\s*\d+\s*[·:–-]?\s*/i,'').trim());
 const notesOf=aid=>Object.entries(DATA.notes).filter(([k,n])=>n.aid===aid).map(([id,n])=>({id,...n})).sort((a,b)=>b.at-a.at);
 const unread=aid=>notesOf(aid).filter(n=>!n.reviewed).length;
-const linkFor=aid=>`${Store.kind==='db'?ARTIFACT_URL:location.href.split('#')[0]}#${aid}`;
+const APP_URL=()=>location.origin+location.pathname;
+const linkFor=aid=>Store.kind==='supa'?APP_URL():`${Store.kind==='db'?ARTIFACT_URL:location.href.split('#')[0]}#${aid}`;
+const me=()=>esc(S.email||'');
+const sessionLine=()=>Store.kind==='supa'?`<div class="muted small" style="margin-top:14px">Conectado como ${me()} · <button class="chip" data-act="logout">Cerrar sesión</button></div>`:'';
 
 // ---------- métricas (mismas definiciones que tu DASHBOARD) ----------
 function planMetrics(day){let t=0,c=0,s=0,e=0,rs=0,rn=0;
@@ -380,13 +397,17 @@ function vAlumnos(){const list=Object.entries(DATA.athletes).map(([id,a])=>({id,
       <div class="small muted">${esc(a.plan.macro)} · Semana ${cw} · ${done}/${w.days.length} sesiones</div>
       <div class="bar" style="margin-top:6px"><b style="width:${100*done/w.days.length}%"></b></div>
       <div class="btns" style="margin-top:10px"><button class="btn ghost sm" data-open="${a.id}">Ver rutina</button><button class="btn ${a.coach?'goldb':'ghost'} sm" data-train="${a.id}">${a.coach?'Entrenar':'Vista alumno'}</button></div>
-      ${a.coach?'':`<details style="margin-top:8px"><summary class="small gold">Link para ${esc(a.name.split(' ')[0])}</summary><div class="link" style="margin-top:6px">${esc(linkFor(a.id))}</div><button class="chip" style="margin-top:6px" data-copy="${a.id}">Copiar link</button></details>`}
+      ${a.coach?'':Store.kind==='supa'?`<details style="margin-top:8px" ${a.email?'':'open'}><summary class="small gold">${a.email?`Acceso de ${esc(a.name.split(' ')[0])}: ${esc(a.email)}`:`Falta el email de ${esc(a.name.split(' ')[0])}`}</summary>
+        <label class="f" style="margin-top:6px">Email con el que entra<input class="t" type="email" id="em-${a.id}" value="${esc(a.email||'')}" placeholder="alumno@correo.com"></label>
+        <div class="btns" style="margin-top:6px"><button class="chip" data-email="${a.id}">Guardar email</button><button class="chip" data-copy="${a.id}">Copiar link de la app</button></div>
+        <div class="muted small" style="margin-top:6px">Envíale el link. Entra con ese email y la app le muestra solo su planificación.</div></details>`
+      :`<details style="margin-top:8px"><summary class="small gold">Link para ${esc(a.name.split(' ')[0])}</summary><div class="link" style="margin-top:6px">${esc(linkFor(a.id))}</div><button class="chip" style="margin-top:6px" data-copy="${a.id}">Copiar link</button></details>`}
     </div></div></div>`}).join('')}
-  ${S.adding?`<div class="card"><div class="eyebrow" style="margin-bottom:8px">Nuevo alumno</div><label class="f">Nombre<input class="t" id="new-name" placeholder="Nombre y apellido"></label>
+  ${S.adding?`<div class="card"><div class="eyebrow" style="margin-bottom:8px">Nuevo alumno</div><label class="f">Nombre<input class="t" id="new-name" placeholder="Nombre y apellido"></label>${Store.kind==='supa'?`<label class="f" style="margin-top:8px">Email del alumno<input class="t" type="email" id="new-email" placeholder="alumno@correo.com"></label>`:''}
     <label class="file" style="margin-top:10px"><input type="file" id="new-xlsx" accept=".xlsx,.xls,.xlsm"><b>Elegir su planificación (.xlsx)</b><span class="muted small" id="new-file-lbl">La app busca sola la hoja con SEMANA / DÍA / EJERCICIO.</span></label>
     <div class="btns" style="margin-top:10px"><button class="btn ghost sm" data-act="add-cancel">Cancelar</button><button class="btn goldb sm" data-act="add-save">Crear alumno</button></div></div>`
   :`<button class="btn goldb" data-act="add">Agregar alumno</button>`}
-  ${Store.kind==='local'?`<div class="muted small">Modo sin conexión: los datos se guardan solo en este navegador.</div>`:''}`}
+  ${Store.kind==='local'?`<div class="muted small">Modo sin conexión: los datos se guardan solo en este navegador.</div>`:''}${sessionLine()}`}
 
 function vNotasCoach(){const all=Object.entries(DATA.notes).map(([id,n])=>({id,...n})).sort((a,b)=>(a.reviewed?1:0)-(b.reviewed?1:0)||b.at-a.at);
   const f=S.nfilter||''; const shown=all.filter(n=>!f||n.aid===f);
@@ -436,17 +457,26 @@ function drawTimer(){const T=S.timer; if(!T) return; const left=Math.max(0,Math.
   <div class="btns3"><button class="btn ghost sm" data-t="-15">−15 s</button><button class="btn ghost sm" data-t="+30">+30 s</button><button class="btn sm" data-t="skip">${left===0?'Listo':'Saltar'}</button></div></div>`}
 
 // ---------- render ----------
+function vLogin(){return `<div class="splash"><img src="${LOGO}" alt="Team Powerosso"><h2 class="h2">Powerosso App</h2>${toastHtml()}
+  ${S.sent?`<div class="muted">Te enviamos un correo a <b>${esc(S.sent)}</b>. Ábrelo en este mismo teléfono y toca el link para entrar.</div>
+    <label class="f" style="margin-top:12px;text-align:left">¿El correo trae un código? Escríbelo aquí<input class="t" id="otp" inputmode="numeric" autocomplete="one-time-code" placeholder="123456"></label>
+    <div class="btns" style="margin-top:10px"><button class="btn ghost sm" data-act="login-back">Usar otro email</button><button class="btn goldb sm" data-act="login-code">Entrar con código</button></div>`
+  :`<div class="muted">Entra con el email que le diste a tu coach. Te llega un link para entrar, sin contraseña.</div>
+    <label class="f" style="margin-top:12px;text-align:left">Tu email<input class="t" type="email" id="login-email" autocomplete="email" placeholder="tu@correo.com"></label>
+    <button class="btn goldb" style="margin-top:10px" data-act="login-send">Enviarme el link</button>`}</div>`}
+
 function render(){
   const hdr=$('#hdr'), nav=$('#nav'), ban=$('#banner');
   if(S.mode==='loading') return;
-  if(S.mode==='nolink'){hdr.hidden=true;nav.hidden=true;ban.innerHTML='';$('#main').innerHTML=`<div class="splash"><img src="${LOGO}" alt="Team Powerosso"><h2 class="h2">Powerosso App</h2><div class="muted">Abre el link personal que te envió tu coach para ver tu planificación.</div></div>`;return}
+  if(S.mode==='login'){hdr.hidden=true;nav.hidden=true;ban.innerHTML='';$('#main').innerHTML=vLogin();return}
+  if(S.mode==='nolink'){hdr.hidden=true;nav.hidden=true;ban.innerHTML='';$('#main').innerHTML=`<div class="splash"><img src="${LOGO}" alt="Team Powerosso"><h2 class="h2">Powerosso App</h2>${toastHtml()}<div class="muted">${Store.kind==='supa'?`El email ${me()} todavía no tiene una planificación asignada. Pídele a tu coach que lo agregue.`:'Abre el link personal que te envió tu coach para ver tu planificación.'}</div>${sessionLine()}</div>`;return}
   if(S.mode==='athlete'){
     if(!ATH()){S.mode=S.isCoach?'coach':'nolink';return render()}
     if(S.week==null||!wkObj(S.week)) S.week=currentWeek();
     ban.innerHTML=S.isCoach?`<div class="banner"><span>Estás viendo la app como <b>${esc(ATH().name)}</b></span><button class="chip" data-act="to-coach">Volver al panel</button></div>`:'';
     hdr.hidden=false; hdr.innerHTML=athleteHeader();
     const un=notesOf(S.aid).filter(n=>n.reply&&!n.seen).length;
-    $('#main').innerHTML=S.tab==='dashboard'?vDash():S.tab==='notas'?vMisNotas():S.view==='sesion'?vSesion():S.view==='resumen'?vResumen():vDias();
+    $('#main').innerHTML=S.tab==='dashboard'?vDash():S.tab==='notas'?vMisNotas()+(S.isCoach?'':sessionLine()):S.view==='sesion'?vSesion():S.view==='resumen'?vResumen():vDias();
     nav.hidden=false; $('#tabs').innerHTML=[['entrenar','Entrenar'],['dashboard','Dashboard'],['notas','Mis notas']].map(([k,l])=>`<button data-tab="${k}" aria-current="${S.tab===k}">${l}${k==='notas'&&un?`<span class="badge">${un}</span>`:''}</button>`).join('');
   } else { // coach
     ban.innerHTML='';
@@ -479,6 +509,9 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
   if(a.open){S.aid=a.open; S.ctab='alumno'; S.csub='rutina'; S.week=null; S.toast=''; S.importMsg=null; return render()}
   if(a.train){location.hash=a.train; return}
   if(a.copy) return copy(linkFor(a.copy));
+  if(a.email){ const v=($('#em-'+a.email).value||'').trim().toLowerCase(); if(v&&!/^\S+@\S+\.\S+$/.test(v)) return flash('Revisa el email.',true);
+    if(v&&Object.entries(DATA.athletes).some(([k,x])=>k!==a.email&&(x.email||'')===v)) return flash('Ese email ya está asignado a otro alumno.',true);
+    const at=JSON.parse(JSON.stringify(DATA.athletes[a.email])); at.email=v; Store.put('athletes',a.email,at); return flash(v?`Email guardado. ${at.name.split(' ')[0]} ya puede entrar con ${v}.`:'Email borrado.') }
   if(a.csub){S.csub=a.csub; S.importMsg=null; return render()}
   if(a.nf!==undefined){S.nfilter=a.nf; return render()}
   if(a.review){const n=DATA.notes[a.review]; Store.put('notes',a.review,{...n,reviewed:!n.reviewed}); return render()}
@@ -490,6 +523,12 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
   const d=S.day&&PLAN()&&wkObj(S.week)&&wkObj(S.week).days.find(x=>x.n===S.day);
   switch(act){
     case 'back': S.view='dias'; S.toast=''; return render();
+    case 'login-send': { const em=($('#login-email').value||'').trim().toLowerCase(); if(!/^\S+@\S+\.\S+$/.test(em)) return flash('Escribe tu email.',true);
+      b.disabled=true; Store.sb.auth.signInWithOtp({email:em,options:{emailRedirectTo:APP_URL()}}).then(({error})=>{ if(error){ b.disabled=false; return flash(/rate|seconds/i.test(error.message)?'Espera un minuto antes de pedir otro link.':'No se pudo enviar el correo. Intenta de nuevo.',true)} S.sent=em; S.toast=''; render() }); return }
+    case 'login-back': S.sent=null; S.toast=''; return render();
+    case 'login-code': { const tk=($('#otp').value||'').trim(); if(!/^\d{6,}$/.test(tk)) return flash('Escribe el código del correo.',true);
+      Store.sb.auth.verifyOtp({email:S.sent,token:tk,type:'email'}).then(({error})=>{ if(error) return flash('Ese código no sirve o ya venció. Pide otro link.',true); location.reload() }); return }
+    case 'logout': Store.sb.auth.signOut().then(()=>{ history.replaceState(null,'',APP_URL()); location.reload() }); return;
     case 'set': { const x=d.exercises[S.ex], L=ensureLog(); const num=v=>parseFloat(String(v).replace(',','.'));
       const kg=num($('#in-kg').value), reps=parseInt($('#in-reps').value), rpe=num($('#in-rpe').value);
       if(isNaN(reps)) return flash('Anota cuántas repeticiones hiciste.',true);
@@ -511,7 +550,9 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
     case 'add': S.adding=true; S.pending=null; return render();
     case 'add-cancel': S.adding=false; return render();
     case 'add-save': { const name=($('#new-name').value||'').trim(); if(!name) return flash('Escribe el nombre del alumno.',true); if(!S.pending) return flash('Elige su Excel antes de crear el alumno.',true);
-      const id=`${slug(name.split(' ')[0])}-${rnd()}`; Store.put('athletes',id,{name,plan:S.pending,coach:false,createdAt:Date.now()}); S.adding=false; S.pending=null; S.toast=`${name} agregado. Copia su link y envíaselo.`; S.toastErr=false; return render() }
+      const email=(($('#new-email')||{}).value||'').trim().toLowerCase(); if(email&&!/^\S+@\S+\.\S+$/.test(email)) return flash('Revisa el email del alumno.',true);
+      if(email&&Object.values(DATA.athletes).some(x=>(x.email||'')===email)) return flash('Ese email ya está asignado a otro alumno.',true);
+      const id=`${slug(name.split(' ')[0])}-${rnd()}`; Store.put('athletes',id,{name,email,plan:S.pending,coach:false,createdAt:Date.now()}); S.adding=false; S.pending=null; S.toast=`${name} agregado. Copia su link y envíaselo.`; S.toastErr=false; return render() }
     case 'reply-cancel': S.replyTo=null; return render();
     case 'reply-save': { const n=DATA.notes[a.id], txt=($('#reply-txt').value||'').trim(); Store.put('notes',a.id,{...n,reply:txt,reviewed:true,seen:false}); S.replyTo=null; return render() }
   }
@@ -520,6 +561,7 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
 function route(){ const h=decodeURIComponent((location.hash||'').slice(1));
   stopTimer(); S.toast=''; S.view='dias'; S.tab='entrenar'; S.week=null;
   if(h&&DATA.athletes[h]){S.mode='athlete'; S.aid=h}
+  else if(!S.isCoach&&S.myAid&&DATA.athletes[S.myAid]){S.mode='athlete'; S.aid=S.myAid}
   else if(S.isCoach){S.mode='coach'; if(S.ctab!=='notas') S.ctab='alumnos'}
   else S.mode=h&&S.ready<3?'loading':'nolink';
   render()}
@@ -530,8 +572,13 @@ document.addEventListener('focusout',()=>setTimeout(()=>{const ae=document.activ
 
 (async function boot(){
   await Store.init();
-  if(Store.kind==='db'){ let u=null; try{u=await window.claude.use('user')}catch(e){} S.isCoach=u?await u.isOwner():false }
+  if(Store.kind==='supa'){ const {data}=await Store.sb.auth.getSession(); const ses=data&&data.session;
+    if(/[?&]code=/.test(location.search)) history.replaceState(null,'',APP_URL()+location.hash);
+    if(!ses){ S.mode='login'; render(); return }
+    S.email=(ses.user.email||'').toLowerCase() }
+  else if(Store.kind==='db'){ let u=null; try{u=await window.claude.use('user')}catch(e){} S.isCoach=u?await u.isOwner():false }
   else S.isCoach=true;
-  const loaded=new Set(); ['athletes','logs','notes'].forEach(c=>Store.listen(c,o=>{DATA[c]=o; if(loaded.size<3){ loaded.add(c); S.ready=loaded.size; if(loaded.size===3) route() } else softRender()}));
+  const who=()=>{ if(Store.kind!=='supa') return; const mine=Object.entries(DATA.athletes).find(([k,a])=>(a.email||'')===S.email); S.myAid=mine?mine[0]:null; S.isCoach=!!(mine&&mine[1].coach) };
+  const loaded=new Set(); ['athletes','logs','notes'].forEach(c=>Store.listen(c,o=>{DATA[c]=o; if(c==='athletes') who(); if(loaded.size<3){ loaded.add(c); S.ready=loaded.size; if(loaded.size===3) route() } else softRender()}));
 })();
 </script>

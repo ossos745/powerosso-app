@@ -10,17 +10,22 @@ Métricas del dashboard: tonelaje (kg × reps), carga (tonelaje × RPE/10), seri
 
 ## Cómo está hecho
 
-Es una sola página (`index.html`) sin servidor propio.
+Es una sola página (`index.html`) sin servidor propio. Guarda los datos según dónde se abra:
 
-- Publicada como Artifact en claude.ai, guarda alumnos, registros y observaciones en la base de datos compartida del Artifact (`athletes`, `logs`, `notes`), y el dueño ve el panel del coach.
-- Abierta en cualquier otro lugar (por ejemplo GitHub Pages), funciona en modo local: todo queda guardado en el navegador de quien la usa.
+- **GitHub Pages + Supabase** (versión principal): si `config.js` tiene la URL y la anon key del proyecto de Supabase, cada persona entra con su email (link o código por correo, sin contraseña). El coach ve todo; cada alumno ve solo su planificación, sus registros y sus observaciones. Esas reglas viven en la base de datos (`supabase/schema.sql`).
+- **Artifact de claude.ai**: usa la base de datos compartida del Artifact y el dueño ve el panel del coach.
+- **Cualquier otro lugar**: modo local, todo queda en el navegador de quien la usa.
+
+### Poner en marcha Supabase
+
+1. Crear un proyecto en supabase.com.
+2. SQL Editor → pegar y correr `supabase/schema.sql`.
+3. Agregar la ficha del coach con su email (`coach = true`) y la de cada alumno. Los alumnos también se pueden crear desde el panel del coach subiendo su Excel e indicando su email.
+4. Authentication → URL Configuration: poner la dirección de la app (por ejemplo `https://ossos745.github.io/powerosso-app/`) como Site URL y en Redirect URLs.
+5. Copiar la Project URL y la anon public key en `config.js`. La service_role key nunca va en la app.
 
 Para regenerar `index.html` después de editar `src/app.src.html` o `src/parser.js`:
 
 ```
 python3 src/build.py
 ```
-
-## Próximo paso
-
-Para que cada alumno entre con su propia cuenta desde el celular, sin depender de claude.ai, el plan es moverla a una app web instalable (Next.js + Supabase + Vercel) reutilizando `src/parser.js` y las mismas métricas.
