@@ -417,6 +417,7 @@ function vMisNotas(){const ns=notesOf(S.aid);
 // ---------- vistas del coach ----------
 function vAlumnos(){const list=Object.entries(DATA.athletes).map(([id,a])=>({id,...a})).sort((a,b)=>(b.coach?1:0)-(a.coach?1:0)||String(a.name).localeCompare(b.name));
   return `${toastHtml()}<div class="row"><h2 class="h2">Mis alumnos</h2><span class="pill gold">${list.filter(a=>!a.coach).length} alumnos</span></div>
+  ${list.some(a=>!a.coach)?`<button class="btn ghost sm" data-act="copy-all">Copiar los links de todos</button>`:''}
   ${list.length?'':`<div class="card muted">Aún no hay rutinas cargadas. Agrega tu primer alumno con su Excel.</div>`}
   ${list.map(a=>{const P=planOf(a), un=unread(a.id), mk=mesoOf(a), avail=MESOS.filter(m=>plansOf(a)[m[0]]);
     const cw=P&&currentWeek(a.id), w=P&&P.weeks.find(x=>x.n===cw), done=w?weekDone(w,a.id):0;
@@ -428,7 +429,7 @@ function vAlumnos(){const list=Object.entries(DATA.athletes).map(([id,a])=>({id,
       <div class="btns" style="margin-top:10px"><button class="btn ghost sm" data-open="${a.id}">Ver rutina</button><button class="btn ${a.coach?'goldb':'ghost'} sm" data-train="${a.id}">${a.coach?'Entrenar':'Vista alumno'}</button></div>`
       :`<div class="small muted">${a.file?`La planilla “${esc(a.file)}” no tiene hojas de mesociclo (Hipertrofia, Fuerza base, Volumen, Peaking o Tapering).`:'Todavía no tiene planilla.'}</div>
       <div class="btns" style="margin-top:10px"><button class="btn ghost sm" data-open="${a.id}">Cargar planilla</button></div>`}
-      ${a.coach?'':`<details style="margin-top:8px"><summary class="small gold">Link para ${esc(a.name.split(' ')[0])}</summary><div class="link" style="margin-top:6px">${esc(linkFor(a.id))}</div><button class="chip" style="margin-top:6px" data-copy="${a.id}">Copiar link</button></details>`}
+      ${a.coach?'':`<div class="small gold" style="margin-top:10px">Link de ${esc(a.name.split(' ')[0])}</div><div class="link" style="margin-top:4px">${esc(linkFor(a.id))}</div><button class="chip" style="margin-top:6px" data-copy="${a.id}">Copiar link</button>`}
     </div></div></div>`}).join('')}
   ${S.adding?`<div class="card"><div class="eyebrow" style="margin-bottom:8px">Nuevo alumno</div><label class="f">Nombre<input class="t" id="new-name" placeholder="Nombre y apellido"></label>
     <label class="file" style="margin-top:10px"><input type="file" id="new-xlsx" accept=".xlsx,.xls,.xlsm"><b>Elegir su planificación (.xlsx)</b><span class="muted small" id="new-file-lbl">La app lee las hojas de mesociclo: Hipertrofia, Fuerza base, Volumen, Peaking y Tapering.</span></label>
@@ -672,6 +673,8 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
       Store.del('athletes',S.aid); Object.keys(DATA.logs).filter(k=>DATA.logs[k].aid===S.aid).forEach(k=>Store.kind==='supa'?delete DATA.logs[k]:Store.del('logs',k)); Object.keys(DATA.notes).filter(k=>DATA.notes[k].aid===S.aid).forEach(k=>Store.kind==='supa'?delete DATA.notes[k]:Store.del('notes',k));
       S.ctab='alumnos'; return flash(`${at.name} eliminado.`) }
     case 'export': return exportBackup();
+    case 'copy-all': { const t=Object.entries(DATA.athletes).filter(([k,x])=>!x.coach).sort((x,y)=>String(x[1].name).localeCompare(y[1].name)).map(([k,x])=>`${x.name}: ${linkFor(k)}`).join('\n');
+      try{ navigator.clipboard.writeText(t).then(()=>flash('Links de todos copiados. Pégalos donde quieras.')).catch(()=>flash('No se pudo copiar. Copia cada link desde su tarjeta.',true)) }catch(e){ flash('No se pudo copiar. Copia cada link desde su tarjeta.',true) } return }
     case 'bat': return downloadBat();
     case 'reply-cancel': S.replyTo=null; return render();
     case 'reply-save': { const n=DATA.notes[a.id], txt=($('#reply-txt').value||'').trim(); Store.put('notes',a.id,{...n,reply:txt,reviewed:true,seen:false}); S.replyTo=null; return render() }
