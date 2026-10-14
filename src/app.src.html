@@ -3,6 +3,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b0a0c">
+<script>
+// Si el celular abre la página en "modo escritorio" (ignora el ancho del teléfono), se agranda para que se vea como app.
+(function(){try{var fit=function(){var d=document.documentElement;
+  if(('ontouchstart' in window||navigator.maxTouchPoints>0)&&screen.width<700&&window.innerWidth>screen.width*1.4){d.style.zoom=(window.innerWidth/screen.width).toFixed(3)}else d.style.zoom=''};
+  fit();addEventListener('resize',fit)}catch(e){}})();
+</script>
 <title>Powerosso App</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
