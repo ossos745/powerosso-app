@@ -108,6 +108,10 @@ textarea{resize:vertical;min-height:64px}
 .timer{position:fixed;inset:0;z-index:20;background:color-mix(in srgb,var(--bg) 95%,transparent);display:flex;align-items:center;justify-content:center;padding:24px 16px}
 .timer[hidden]{display:none}
 [hidden]{display:none!important}
+.rpebox{width:100%;background:var(--surface);border:2px solid var(--gold);border-radius:14px;padding:12px 14px;text-align:left;box-shadow:0 0 0 4px color-mix(in srgb,var(--gold) 18%,transparent)}
+.rpebox .q{font-weight:600;margin-bottom:8px}
+.rpebox input{width:100%;font:700 30px var(--mono);text-align:center;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg)}
+.rpebox input:focus{outline:2px solid var(--gold);border-color:var(--gold)}
 .rpe10{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;width:100%}
 .rpe10 button{min-height:44px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--fg);font:600 16px var(--mono)}
 .rpe10 button[aria-pressed=true]{background:var(--gold);color:#1a1408;border-color:var(--gold)}
@@ -313,6 +317,7 @@ function vSesion(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day), L=ensur
     `<div class="card"><div class="row"><b>Ejercicio completo</b><span class="pill ok">${done.length}/${x.sets} series</span></div>
      ${next?`<div class="small muted" style="margin-top:6px">Siguiente: <b style="color:var(--fg)">${title(next.name)}</b> · ${next.kg!=null?fmt(next.kg,1)+' kg':esc(next.load||'')} · ${next.sets}×${esc(next.reps)}</div>`:''}
      <button class="btn" style="margin-top:10px" data-act="${next?'nextex':'finish'}">${next?'Siguiente ejercicio':'Terminar sesión'}</button></div>`}
+  ${lastRpeBox(L)}
   <div class="card"><div class="row"><span class="eyebrow">Observación para tu coach</span>${ns.length?`<span class="pill gold">${ns.length}</span>`:''}</div>
     ${ns.map(n=>noteHtml(n,false)).join('')}
     ${S.obsOpen?`<div class="chips" style="margin-top:8px">${OBS.map(o=>`<button class="chip" data-obs="${o}" aria-pressed="${S.obsTag===o}">${o}</button>`).join('')}</div>
@@ -321,6 +326,10 @@ function vSesion(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day), L=ensur
     :`<button class="btn ghost sm" style="margin-top:8px" data-act="obs-open">Dejar observación</button>`}</div>
   <div class="btns"><button class="btn ghost sm" data-act="prevex" ${S.ex?'':'disabled'}>Anterior</button><button class="btn ghost sm" data-act="${next?'skip':'finish'}">${next?'Saltar ejercicio':'Terminar sesión'}</button></div>`}
 
+// cuadro para anotar o corregir el RPE real de la última serie hecha del ejercicio actual
+function lastRpeBox(L){ const arr=L.sets[S.ex]||[]; if(!arr.length) return ''; const i=arr.length-1, st=arr[i], has=st.rpe!=null&&st.rpe!=='';
+  return `<div class="rpebox"><div class="q">${has?`¿Deseas modificar el RPE? <span class="muted small">(serie ${i+1})</span>`:`¿Qué tan dura fue la serie del 1 al 10? (RPE REAL) <span class="muted small">serie ${i+1}</span>`}</div>
+  <input id="last-rpe" data-rpeset="${S.ex}:${i}" type="text" inputmode="decimal" autocomplete="off" placeholder="—" value="${has?esc(st.rpe):''}"></div>`}
 function vRpeDia(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day);
   return `<div class="eyebrow">Semana ${w.n} · ${dayName(d)}</div><h2 class="h2">¡Sesión terminada!</h2>
   <div class="card"><div style="font-weight:600">¿Qué tan duro fue el entrenamiento de hoy, completo?</div>
@@ -488,8 +497,7 @@ function startTimer(rest,label,set){S.timer={end:Date.now()+rest.max*1000,total:
   const el=$('#timer'), C=2*Math.PI*54, st=set&&((ensureLog().sets[set.ex]||[])[set.i]||{});
   el.innerHTML=`<div class="in"><img src="${LOGO}" alt="" style="width:56px"><div class="eyebrow">Descanso</div><div class="ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="54" fill="none" stroke="var(--surface-2)" stroke-width="8"/><circle id="t-arc" cx="60" cy="60" r="54" fill="none" stroke="var(--gold)" stroke-width="8" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="0"/></svg><div class="tt"><b id="t-left"></b><span id="t-tot">de ${fmtRest(rest.max)}</span></div></div>
   <div id="t-msg"></div>
-  ${set?`<div style="width:100%"><div class="small" style="margin-bottom:6px">¿Qué tan dura fue la serie ${set.n} de ${title(set.name)}? <span class="muted">(opcional, 1 = muy fácil · 10 = al fallo${set.plan?` · plan @${fmt(set.plan,1)}`:''})</span></div>
-    <div class="rpe10">${[1,2,3,4,5,6,7,8,9,10].map(v=>`<button data-setrpe="${v}" aria-pressed="${+st.rpe===v}">${v}</button>`).join('')}</div></div>`:''}
+  ${set?`<div class="rpebox"><div class="q">¿Qué tan dura fue la serie del 1 al 10? (RPE REAL)</div><input id="t-rpe" data-rpeset="${set.ex}:${set.i}" type="text" inputmode="decimal" autocomplete="off" placeholder="—" value="${st.rpe!=null&&st.rpe!==''?esc(st.rpe):''}"></div>`:''}
   <div class="small muted">${esc(label)}</div>
   <div class="btns3"><button class="btn ghost sm" data-t="-15">−15 s</button><button class="btn ghost sm" data-t="+30">+30 s</button><button class="btn sm" data-t="skip" id="t-skip">Saltar</button></div></div>`;
   clearInterval(tick); tick=setInterval(drawTimer,250); drawTimer()}
@@ -639,6 +647,10 @@ function route(){ const h=decodeURIComponent((location.hash||'').slice(1));
   render()}
 window.addEventListener('hashchange',route);
 function setMeso(aid,k){ const at=JSON.parse(JSON.stringify(DATA.athletes[aid])); at.meso=k; Store.put('athletes',aid,at); if(aid===S.aid) S.week=null; flash(`${at.name.split(' ')[0]} ahora está en ${mesoLabel(k)}.`) }
+document.addEventListener('input',e=>{const t=e.target; if(!t.dataset||!t.dataset.rpeset) return; const [ex,i]=t.dataset.rpeset.split(':').map(Number);
+  const st=(ensureLog().sets[ex]||[])[i]; if(!st) return; const raw=t.value.replace(',','.').trim(), v=parseFloat(raw);
+  if(raw===''){ st.rpe=null; t.style.borderColor=''; } else if(!isNaN(v)&&v>=1&&v<=10){ st.rpe=v; t.style.borderColor=''; } else { t.style.borderColor='var(--red)'; return }
+  clearTimeout(S.rpeT); S.rpeT=setTimeout(saveLog,400)});
 document.addEventListener('change',e=>{const t=e.target; if(t.dataset&&t.dataset.meso) setMeso(t.dataset.meso,t.value)});
 // no borrar lo que alguien está escribiendo cuando llegan datos nuevos
 function softRender(){const ae=document.activeElement; if(ae&&/INPUT|TEXTAREA/.test(ae.tagName)&&ae.closest('main')){S.dirty=true;return} render()}
