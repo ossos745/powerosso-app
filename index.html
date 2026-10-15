@@ -3,6 +3,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0b0a0c">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="assets/icon-192.png">
+<link rel="apple-touch-icon" href="assets/icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Powerosso">
 <script>
 // Si el celular abre la página en "modo escritorio" (ignora el ancho del teléfono), se agranda para que se vea como app.
 (function(){try{var fit=function(){var d=document.documentElement;
@@ -126,6 +132,10 @@ textarea{resize:vertical;min-height:64px}
 .ring .tt b{font:800 72px/1 var(--display);font-variant-numeric:tabular-nums}
 .timer .go{color:var(--green);font-weight:600}
 .btns3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;width:100%}
+.rtitle{font:800 26px/1.08 var(--display);text-transform:uppercase;letter-spacing:.02em;color:var(--gold-2);margin:2px 0 10px;text-wrap:balance}
+.over{color:var(--gold)} .under{color:#7fb0c9}
+.sbar{display:flex;height:10px;border-radius:6px;overflow:hidden;background:var(--surface-2);margin-top:8px}
+.sbar b{display:block;height:100%}
 .kpis{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .kpi{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;min-width:0}
 .kpi .v{font:700 26px/1.1 var(--display);font-variant-numeric:tabular-nums}
@@ -252,10 +262,14 @@ const EFF=7; // serie efectiva: RPE >= 7, igual que tu hoja DATOS ANÁLISIS
 // ---------- almacenamiento: Supabase (versión GitHub, link con clave ?k=), base del artifact (db) o este navegador ----------
 const SB=window.POWEROSSO_SUPABASE||{};
 const urlToken=()=>{try{return new URLSearchParams(location.search).get('k')||''}catch(e){return ''}};
+// la app instalada se abre sin ?k=: recuerda el link de esta persona (el del coach no se reemplaza por el de un alumno)
+const savedToken={get(){try{return localStorage.getItem('powerosso.k')||''}catch(e){return ''}},
+  set(t,coach){try{ if(!coach&&localStorage.getItem('powerosso.kc')==='1'&&localStorage.getItem('powerosso.k')&&localStorage.getItem('powerosso.k')!==t) return; localStorage.setItem('powerosso.k',t); localStorage.setItem('powerosso.kc',coach?'1':'0') }catch(e){}},
+  clear(){try{localStorage.removeItem('powerosso.k');localStorage.removeItem('powerosso.kc')}catch(e){}}};
 async function rpc(fn,args){ const r=await fetch(`${SB.url.replace(/\/$/,'')}/rest/v1/rpc/${fn}`,{method:'POST',headers:{apikey:SB.anonKey,Authorization:'Bearer '+SB.anonKey,'Content-Type':'application/json'},body:JSON.stringify(args)});
   const t=await r.text(); let j=null; try{j=t?JSON.parse(t):null}catch(e){} if(!r.ok){const e=new Error((j&&j.message)||t||r.statusText); e.status=r.status; throw e} return j }
 const Store={kind:'local',db:null,q:{},subs:[],token:'',since:null,pulls:0,pending:new Set(),files:{},parsed:{},
-  async init(){ if(SB.url&&SB.anonKey){ this.kind='supa'; this.token=urlToken(); return }
+  async init(){ if(SB.url&&SB.anonKey){ this.kind='supa'; this.token=urlToken()||savedToken.get(); this.fromSaved=!urlToken(); return }
     let db=null; try{ if(window.claude&&window.claude.use) db=await window.claude.use('db') }catch(e){} if(db){this.kind='db';this.db=db} },
   // Supabase: trae todo lo visible para esta clave (o solo lo cambiado) y lee las planillas nuevas
   async pull(full){ full=full||!this.since||(++this.pulls%15===0);
@@ -383,12 +397,11 @@ function vSesion(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day), L=ensur
   ${toastHtml()}
   ${done.length?`<div class="setlog">${done.map((s,i)=>`<span>S${i+1} · ${s.kg!=null&&s.kg!==''?fmt(+s.kg,1)+'×':''}${s.reps}${s.rpe!=null&&s.rpe!==''?' @'+fmt(+s.rpe,1):''}</span>`).join('')}</div>`:''}
   ${!allDone?`<div class="card"><div class="eyebrow" style="margin-bottom:8px">Serie ${done.length+1} de ${x.sets}${/AMRAP|FALLO|>=/i.test(x.reps+x.name)?' · anota cuántas hiciste':''}</div>
-    <div class="inputs" style="grid-template-columns:1fr 1fr"><label class="f">kg<input id="in-kg" inputmode="decimal" value="${esc(def.kg)}"></label><label class="f">reps<input id="in-reps" inputmode="numeric" value="${esc(def.reps)}" placeholder="?"></label></div><div class="small muted" style="margin-top:6px">El RPE de la serie lo anotas durante el descanso.</div>
+    <div class="inputs" style="grid-template-columns:1fr 1fr"><label class="f">kg<input id="in-kg" inputmode="decimal" value="${esc(def.kg)}"></label><label class="f">reps<input id="in-reps" inputmode="numeric" value="${esc(def.reps)}" placeholder="?"></label></div><div class="rpebox" style="margin-top:10px"><div class="q">¿Qué tan dura fue la serie del 1 al 10? (RPE REAL) <span class="muted small">serie ${done.length+1} · opcional</span></div><input id="cur-rpe" type="text" inputmode="decimal" autocomplete="off" placeholder="—"></div>
     <button class="btn" style="margin-top:10px" data-act="set">Serie hecha · descanso ${fmtRest(x.rest.max)}</button></div>`:
     `<div class="card"><div class="row"><b>Ejercicio completo</b><span class="pill ok">${done.length}/${x.sets} series</span></div>
      ${next?`<div class="small muted" style="margin-top:6px">Siguiente: <b style="color:var(--fg)">${title(next.name)}</b> · ${next.kg!=null?fmt(next.kg,1)+' kg':esc(next.load||'')} · ${next.sets}×${esc(next.reps)}</div>`:''}
      <button class="btn" style="margin-top:10px" data-act="${next?'nextex':'finish'}">${next?'Siguiente ejercicio':'Terminar sesión'}</button></div>`}
-  ${lastRpeBox(L)}
   <div class="card"><div class="row"><span class="eyebrow">Observación para tu coach</span>${ns.length?`<span class="pill gold">${ns.length}</span>`:''}</div>
     ${ns.map(n=>noteHtml(n,false)).join('')}
     ${S.obsOpen?`<div class="chips" style="margin-top:8px">${OBS.map(o=>`<button class="chip" data-obs="${o}" aria-pressed="${S.obsTag===o}">${o}</button>`).join('')}</div>
@@ -397,10 +410,6 @@ function vSesion(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day), L=ensur
     :`<button class="btn ghost sm" style="margin-top:8px" data-act="obs-open">Dejar observación</button>`}</div>
   <div class="btns"><button class="btn ghost sm" data-act="prevex" ${S.ex?'':'disabled'}>Anterior</button><button class="btn ghost sm" data-act="${next?'skip':'finish'}">${next?'Saltar ejercicio':'Terminar sesión'}</button></div>`}
 
-// cuadro para anotar o corregir el RPE real de la última serie hecha del ejercicio actual
-function lastRpeBox(L){ const arr=L.sets[S.ex]||[]; if(!arr.length) return ''; const i=arr.length-1, st=arr[i], has=st.rpe!=null&&st.rpe!=='';
-  return `<div class="rpebox"><div class="q">${has?`¿Deseas modificar el RPE? <span class="muted small">(serie ${i+1})</span>`:`¿Qué tan dura fue la serie del 1 al 10? (RPE REAL) <span class="muted small">serie ${i+1}</span>`}</div>
-  <input id="last-rpe" data-rpeset="${S.ex}:${i}" type="text" inputmode="decimal" autocomplete="off" placeholder="—" value="${has?esc(st.rpe):''}"></div>`}
 function vRpeDia(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day);
   return `<div class="eyebrow">Semana ${w.n} · ${dayName(d)}</div><h2 class="h2">¡Sesión terminada!</h2>
   <div class="card"><div style="font-weight:600">¿Qué tan duro fue el entrenamiento de hoy, completo?</div>
@@ -410,7 +419,7 @@ function vRpeDia(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day);
 function vResumen(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day), L=dayLog(w.n,d.n), pm=planMetrics(d), rm=realMetrics(L);
   return `<div class="eyebrow">Semana ${w.n} · ${dayName(d)}</div><h2 class="h2">Resumen · ${title(d.focus)}</h2>
   ${L&&L.rpeDay?`<div class="card row"><span>RPE real del día</span><b class="num" style="font-size:22px">${L.rpeDay}/10</b></div>`:''}
-  ${kpis(rm,pm)}<div class="card"><div class="eyebrow" style="margin-bottom:8px">Grupos musculares de la sesión</div>${pieMuscles([[w,d]])}</div>${dayTable(w,d,false)}
+  ${kpis(rm,pm,true)}<div class="card"><div class="eyebrow" style="margin-bottom:8px">Grupos musculares de la sesión (kilos levantados)</div>${pieMuscles([[w,d]],true)}</div>${dayTable(w,d,false)}
   <button class="btn" data-act="todash">Ver dashboard de la semana</button><button class="btn ghost" data-act="back">Volver a los días</button>`}
 
 function dayTable(w,d,coach){const L=dayLog(w.n,d.n);
@@ -419,8 +428,8 @@ function dayTable(w,d,coach){const L=dayLog(w.n,d.n);
     return `<tr><td>${title(x.name)}${ns.length?`<div class="small gold">${ns.map(n=>esc(n.tag||'Nota')+(n.text?': '+esc(n.text):'')).join('<br>')}</div>`:''}</td><td class="pl num">${x.sets}×${esc(x.reps)}${x.kg!=null?'<br>'+fmt(x.kg,1)+' kg':''}${x.rpe!=null?' @'+esc(x.rpe):''}</td><td class="num">${st.length?`${st.length}/${x.sets}<br>${best.kg!=null&&best.kg!==''?fmt(+best.kg,1)+'×':''}${best.reps}${best.rpe!=null&&best.rpe!==''?' @'+fmt(+best.rpe,1):''}`:'<span class="muted">—</span>'}</td></tr>`}).join('')}
   </tbody></table></div></div>`}
 
-function kpis(r,p){const k=(l,v,pv,u='')=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}${u}</div><div class="p">plan ${pv}${u}</div></div>`;
-  return `<div class="kpis">${k('Tonelaje',fmt(r.ton/1000,2),fmt(p.ton/1000,2),' t')}${k('Carga (kg×RPE/10)',fmt(r.carga/1000,2),fmt(p.carga/1000,2),' t')}${k('Series efectivas',fmt(r.eff),fmt(p.eff))}${k('RPE medio',fmt(r.rpe,1),fmt(p.rpe,1))}</div>`}
+function kpis(r,p,kg){const k=(l,v,pv,u='')=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}${u}</div><div class="p">plan ${pv}${u}</div></div>`;
+  return `<div class="kpis">${kg?k('Kilos levantados',fmt(r.ton),fmt(p.ton),' kg'):k('Tonelaje',fmt(r.ton/1000,2),fmt(p.ton/1000,2),' t')}${k('Carga (kg×RPE/10)',fmt(r.carga/1000,2),fmt(p.carga/1000,2),' t')}${k('Series efectivas',fmt(r.eff),fmt(p.eff))}${k('RPE medio',fmt(r.rpe,1),fmt(p.rpe,1))}</div>`}
 
 // grupos musculares por nombre del ejercicio (el orden importa: "curl femoral" antes que "curl")
 const MUSC=[['Isquios y glúteos',/CURL FEMORAL|FEMORAL|DEADLIFT|PESO MUERTO|RUMANO|HIP\s*THRUST|BUENOS DIAS|GOOD MORNING|GLUTE|PUENTE|BLOCK\s*PULL|NORDIC|PATADA/],
@@ -432,16 +441,16 @@ const MUSC=[['Isquios y glúteos',/CURL FEMORAL|FEMORAL|DEADLIFT|PESO MUERTO|RUM
   ['Core',/ABDOM|PLANCHA|CORE|CRUNCH|RUEDA|PALLOF|OBLICUO/]];
 const MCOL={'Cuádriceps':'var(--red)','Isquios y glúteos':'var(--brown)','Pecho':'var(--gold)','Espalda':'#5f8fa8','Hombros':'#c47a3a','Brazos':'#8fa864','Core':'#a58fc4','Otros':'var(--muted)'};
 const muscle=n=>{const t=normU(n); const m=MUSC.find(x=>x[1].test(t)); return m?m[0]:'Otros'};
-function pieMuscles(pairs){ const real={}, plan={};
+function pieMuscles(pairs,kg){ const real={}, plan={};
   pairs.forEach(([w,d])=>{ const L=dayLog(w.n,d.n); d.exercises.forEach((x,i)=>{ const g=muscle(x.name); plan[g]=(plan[g]||0)+(x.kg||0)*(x.repsN||0)*x.sets;
     ((L&&L.sets[i])||[]).forEach(st=>real[g]=(real[g]||0)+(+st.kg||0)*(+st.reps||0)) }) });
   const useReal=Object.values(real).some(v=>v>0), src=useReal?real:plan, tot=Object.values(src).reduce((a,b)=>a+b,0);
-  if(!tot) return `<div class="muted small">Aún no hay tonelaje registrado.</div>`;
+  if(!tot) return `<div class="muted small">Aún no hay ${kg?'kilos':'tonelaje'} registrado${kg?'s':''}.</div>`;
   const items=Object.entries(src).filter(([g,v])=>v>0).sort((a,b)=>b[1]-a[1]); let ang=-Math.PI/2; const R=60,c=66;
   const arcs=items.map(([g,v])=>{ const f=v/tot; if(f>0.9999) return `<circle cx="${c}" cy="${c}" r="${R}" fill="${MCOL[g]}"/>`; const a2=ang+f*2*Math.PI;
     const p=`M${c},${c} L${c+R*Math.cos(ang)},${c+R*Math.sin(ang)} A${R},${R} 0 ${f>.5?1:0} 1 ${c+R*Math.cos(a2)},${c+R*Math.sin(a2)} Z`; ang=a2; return `<path d="${p}" fill="${MCOL[g]}" stroke="var(--surface)" stroke-width="1.5"/>` }).join('');
-  return `<div class="pie"><svg viewBox="0 0 132 132" role="img" aria-label="Tonelaje por grupo muscular">${arcs}<circle cx="${c}" cy="${c}" r="30" fill="var(--surface)"/><text x="${c}" y="${c-2}" text-anchor="middle" font-size="15" font-weight="700" fill="var(--fg)" font-family="var(--mono)">${fmt(tot/1000,1)}</text><text x="${c}" y="${c+13}" text-anchor="middle" font-size="10" fill="var(--muted)">t ${useReal?'real':'plan'}</text></svg>
-  <ul>${items.map(([g,v])=>`<li><i style="background:${MCOL[g]}"></i><span>${g}</span><span class="num">${fmt(v/1000,2)} t · <b>${fmt(100*v/tot)}%</b></span></li>`).join('')}</ul></div>
+  return `<div class="pie"><svg viewBox="0 0 132 132" role="img" aria-label="Tonelaje por grupo muscular">${arcs}<circle cx="${c}" cy="${c}" r="30" fill="var(--surface)"/><text x="${c}" y="${c-2}" text-anchor="middle" font-size="${kg?12:15}" font-weight="700" fill="var(--fg)" font-family="var(--mono)">${kg?fmt(tot):fmt(tot/1000,1)}</text><text x="${c}" y="${c+13}" text-anchor="middle" font-size="10" fill="var(--muted)">${kg?'kg':'t'} ${useReal?'real':'plan'}</text></svg>
+  <ul>${items.map(([g,v])=>`<li><i style="background:${MCOL[g]}"></i><span>${g}</span><span class="num">${kg?fmt(v)+' kg':fmt(v/1000,2)+' t'} · <b>${fmt(100*v/tot)}%</b></span></li>`).join('')}</ul></div>
   ${useReal?'':'<div class="muted small" style="margin-top:6px">Todavía sin series registradas: se muestra lo planificado.</div>'}`}
 function vDash(){const w=wkObj(S.week), rm=weekMetrics(w,true), pm=weekMetrics(w,false), done=weekDone(w);
   const pd=S.pieDay&&w.days.find(d=>d.n===S.pieDay); const pieSel=pd?[[w,pd]]:w.days.map(d=>[w,d]);
@@ -504,21 +513,100 @@ function vRespaldo(){const coachId=Object.keys(DATA.athletes).find(k=>DATA.athle
   <div class="small muted" style="margin-top:12px">El actualizador lee todas las planillas de tu carpeta Alumnos, las sube a la app y guarda un respaldo en esa misma carpeta.</div>
   <button class="btn ghost sm" style="margin-top:6px" data-act="bat">Descargar actualizador (.bat)</button>`:''}
   <div class="small muted" style="margin-top:12px">El respaldo guarda alumnos, links, planillas, mesociclos, registros, observaciones y métricas por semana. La app lo puede volver a leer.</div>
-  <div class="btns" style="margin-top:6px"><button class="btn ghost sm" data-act="export">Exportar respaldo</button><label class="btn ghost sm" style="position:relative">Importar respaldo<input type="file" id="imp" accept=".json,application/json" style="position:absolute;inset:0;opacity:0"></label></div></div>`}
+  <div class="small muted" style="margin-top:12px">Excel con una hoja por alumno: RPE planificado vs real de cada serie y sus observaciones, por fecha.</div>
+  <button class="btn goldb sm" style="margin-top:6px" data-act="xls">Exportar Excel (RPE y observaciones)</button>
+  <div class="btns" style="margin-top:10px"><button class="btn ghost sm" data-act="export">Exportar respaldo</button><label class="btn ghost sm" style="position:relative">Importar respaldo<input type="file" id="imp" accept=".json,application/json" style="position:absolute;inset:0;opacity:0"></label></div></div>`}
+
+// ---------- RPE planificado vs real ----------
+const fdLong=ts=>{try{return new Date(ts).toLocaleDateString('es-CL',{day:'numeric',month:'long'})}catch(e){return ''}};
+const fdNum=ts=>{try{return new Date(ts).toLocaleDateString('es-CL',{day:'2-digit',month:'2-digit',year:'numeric'})}catch(e){return ''}};
+const hasR=v=>v!=null&&v!==''&&!isNaN(+v);
+const sgn=v=>v==null?'—':(v>0.05?'+':v<-0.05?'−':'±')+fmt(Math.abs(v),1);
+const dcls=v=>v>=1?'over':v<=-1?'under':'';
+const avgOf=v=>v.length?v.reduce((p,q)=>p+q,0)/v.length:null;
+// sesiones registradas de un alumno, con su día de la planilla, de la más antigua a la más nueva
+function sessionsOf(aid){ const a=DATA.athletes[aid]||{};
+  return Object.entries(DATA.logs).filter(([id,L])=>L.aid===aid).map(([id,L])=>{ const P=plansOf(a)[L.meso]||planOf(a), w=P&&P.weeks.find(x=>x.n===L.w), d=w&&w.days.find(x=>x.n===L.d);
+    const ts=Object.values(L.sets||{}).flat().map(s=>s.t||0); const t=L.finishedAt||(ts.length?Math.max(...ts):0)||Date.parse(L.date)||0; return {id,L,d,t} }).sort((x,y)=>x.t-y.t) }
+// una fila por serie hecha: RPE plan y RPE real
+function rpeRows(aid){ return sessionsOf(aid).flatMap(o=>Object.entries(o.L.sets||{}).flatMap(([i,arr])=>{ const x=o.d&&o.d.exercises[i];
+  return (arr||[]).map((s,k)=>({...o,i:+i,x,name:x?title(x.name):'Ejercicio '+(+i+1),k:k+1,s,plan:hasR(s.rpePlan)?+s.rpePlan:(x&&x.rpeN)||null,real:hasR(s.rpe)?+s.rpe:null})) })) }
+function rpeStats(rows){ const c=rows.filter(r=>r.plan!=null&&r.real!=null), v=c.map(r=>r.real-r.plan), n=v.length; if(!n) return null; const m=avgOf(v);
+  return {n,mean:m,abs:avgOf(v.map(Math.abs)),sd:Math.sqrt(avgOf(v.map(x=>(x-m)**2))),over:v.filter(x=>x>=1).length/n,under:v.filter(x=>x<=-1).length/n,ok:v.filter(x=>Math.abs(x)<=0.5).length/n,
+    plan:avgOf(c.map(r=>r.plan)),real:avgOf(c.map(r=>r.real))} }
+const dayTitle=(L,d)=>`Entrenamiento S${L.w} Día ${L.d}`;
 
 function vRpeCoach(){ const f=S.rfilter||'';
-  const rows=Object.entries(DATA.logs).map(([id,L])=>({id,...L})).filter(L=>DATA.athletes[L.aid]&&(L.rpeDay||Object.values(L.sets||{}).some(a=>a.some(s=>s.rpe!=null&&s.rpe!==''))));
-  const ids=[...new Set(rows.map(r=>r.aid))]; const shown=rows.filter(r=>!f||r.aid===f).sort((a,b)=>(b.finishedAt||b.updatedAt||0)-(a.finishedAt||a.updatedAt||0));
+  const rows=Object.entries(DATA.logs).map(([id,L])=>({id,...L})).filter(L=>DATA.athletes[L.aid]&&(L.rpeDay||Object.values(L.sets||{}).some(a=>a.some(s=>hasR(s.rpe)))));
+  const ids=[...new Set(rows.map(r=>r.aid))]; const when=L=>{const ts=Object.values(L.sets||{}).flat().map(s=>s.t||0); return L.finishedAt||(ts.length?Math.max(...ts):0)||Date.parse(L.date)||0};
+  const shown=rows.filter(r=>!f||r.aid===f).sort((a,b)=>when(b)-when(a));
   const card=L=>{ const a=DATA.athletes[L.aid], P=plansOf(a)[L.meso]||planOf(a), w=P&&P.weeks.find(x=>x.n===L.w), d=w&&w.days.find(x=>x.n===L.d);
-    const ex=Object.entries(L.sets||{}).map(([i,arr])=>({x:d&&d.exercises[i],arr:arr.filter(s=>s.rpe!=null&&s.rpe!=='')})).filter(o=>o.arr.length);
-    const all=ex.flatMap(o=>o.arr.map(s=>+s.rpe)), avg=all.length?all.reduce((p,q)=>p+q,0)/all.length:null;
-    const planAvg=(()=>{const v=ex.flatMap(o=>o.arr.map(s=>+s.rpePlan||0)).filter(Boolean); return v.length?v.reduce((p,q)=>p+q,0)/v.length:null})();
-    return `<div class="note"><div class="meta">${esc(a.name)} · ${L.meso?esc(mesoLabel(L.meso))+' · ':''}S${L.w} · ${d?esc(dayName(d)):'Día '+L.d} · ${fdate(L.finishedAt||L.updatedAt)}</div>
-    <div class="row" style="justify-content:flex-start;gap:14px;margin:4px 0"><span>Día: <b class="num">${L.rpeDay?L.rpeDay+'/10':'—'}</b></span><span>Series: <b class="num">${avg!=null?fmt(avg,1):'—'}</b>${planAvg?` <span class="muted small">(plan ${fmt(planAvg,1)})</span>`:''}</span></div>
-    ${ex.map(o=>`<div class="small"><span class="muted">${o.x?title(o.x.name):'Ejercicio'}:</span> ${o.arr.map(s=>`<b class="num ${s.rpePlan&&+s.rpe-s.rpePlan>=1?'gold':''}">${fmt(+s.rpe,1)}</b>`).join(' · ')}${o.arr[0].rpePlan?` <span class="muted">(plan @${fmt(o.arr[0].rpePlan,1)})</span>`:''}</div>`).join('')}</div>` };
-  return `<h2 class="h2">RPE real alumnos</h2><div class="muted small">Lo que cada alumno anotó en el descanso (por serie) y al terminar el día. En dorado, series que se sintieron 1 punto o más sobre el plan.</div>
+    const ex=Object.entries(L.sets||{}).map(([i,arr])=>({x:d&&d.exercises[i],i:+i,arr})).filter(o=>o.arr.some(s=>hasR(s.rpe))).sort((p,q)=>p.i-q.i);
+    const all=ex.flatMap(o=>o.arr.filter(s=>hasR(s.rpe)).map(s=>+s.rpe)), avg=avgOf(all);
+    const planAvg=avgOf(ex.flatMap(o=>o.arr.filter(s=>hasR(s.rpe)).map(s=>+(s.rpePlan||(o.x&&o.x.rpeN))||0)).filter(Boolean));
+    return `<div class="card"><div class="eyebrow">${esc(a.name)}${L.meso?' · '+esc(mesoLabel(L.meso)):''}${d?' · '+esc(dayName(d))+(d.focus?' · '+esc(title(d.focus)):''):''}</div>
+    <div class="rtitle">${dayTitle(L,d)} · ${fdLong(when(L))}</div>
+    <div class="kpis"><div class="kpi"><div class="l">RPE día</div><div class="v">${L.rpeDay?L.rpeDay+'<span class="small muted">/10</span>':'—'}</div><div class="p">${L.rpeDay?'Sesión completa':'No lo anotó'}</div></div>
+    <div class="kpi"><div class="l">RPE promedio de series</div><div class="v">${avg!=null?fmt(avg,1):'—'}</div><div class="p">${planAvg?`plan ${fmt(planAvg,1)} · ${all.length} series`:`${all.length} series`}</div></div></div>
+    <div class="eyebrow" style="margin:12px 0 6px">RPE por serie</div>
+    <div class="tbl wrap"><table><thead><tr><th>Ejercicio</th><th>Plan</th><th>Real por serie</th></tr></thead><tbody>
+    ${ex.map(o=>{const pl=+(o.arr[0].rpePlan||(o.x&&o.x.rpeN))||null; return `<tr><td>${o.x?title(o.x.name):'Ejercicio '+(o.i+1)}</td><td class="num pl">${pl?'@'+fmt(pl,1):'—'}</td><td class="num">${o.arr.map((s,k)=>hasR(s.rpe)?`<span style="white-space:nowrap">S${k+1} <b class="${pl?dcls(+s.rpe-pl):''}">${fmt(+s.rpe,1)}</b></span>`:`<span class="muted" style="white-space:nowrap">S${k+1} —</span>`).join(' · ')}</td></tr>`}).join('')}
+    </tbody></table></div></div>` };
+  return `<h2 class="h2">RPE real alumnos</h2><div class="muted small">Lo que cada alumno anotó en cada serie y al terminar el día. En dorado, series que se sintieron 1 punto o más sobre el plan; en celeste, 1 punto o más bajo el plan.</div>
   <div class="chips"><button class="chip" data-rf="" aria-pressed="${!f}">Todos</button>${ids.map(id=>`<button class="chip" data-rf="${id}" aria-pressed="${f===id}">${esc(DATA.athletes[id]?.name||id)}</button>`).join('')}</div>
-  ${shown.length?`<div class="card" style="display:flex;flex-direction:column;gap:12px">${shown.map(card).join('')}</div>`:`<div class="card muted">Todavía no hay RPE real anotado. Aparece aquí cuando un alumno lo marca durante el descanso o al terminar el día.</div>`}`}
+  ${shown.length?shown.map(card).join(''):`<div class="card muted">Todavía no hay RPE real anotado. Aparece aquí cuando un alumno lo marca en una serie o al terminar el día.</div>`}`}
+
+function vCompara(){ const ids=Object.keys(DATA.athletes).filter(id=>rpeRows(id).some(r=>r.real!=null&&r.plan!=null)).sort((x,y)=>String(DATA.athletes[x].name).localeCompare(DATA.athletes[y].name));
+  const xlsBtn=`<button class="btn goldb sm" data-act="xls">Exportar Excel (RPE y observaciones)</button>`;
+  if(!ids.length) return `<h2 class="h2">Plan vs real</h2><div class="card muted">Todavía no hay series con RPE real y RPE planificado para comparar.</div>${xlsBtn}`;
+  const f=ids.includes(S.cfilter)?S.cfilter:ids[0], rows=rpeRows(f), st=rpeStats(rows);
+  const pct=v=>fmt(100*v)+'%', mk=(l,v,p)=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="p">${p}</div></div>`;
+  const tot=`<div class="card"><div class="eyebrow" style="margin-bottom:6px">Todos los alumnos</div><div class="tbl"><table><thead><tr><th>Alumno</th><th>Series</th><th>Plan</th><th>Real</th><th>Dif.</th><th>DE</th></tr></thead><tbody>
+    ${ids.map(id=>{const t=rpeStats(rpeRows(id)); return `<tr><td>${esc(DATA.athletes[id].name)}</td><td class="num">${t.n}</td><td class="num pl">${fmt(t.plan,1)}</td><td class="num">${fmt(t.real,1)}</td><td class="num ${dcls(t.mean)}"><b>${sgn(t.mean)}</b></td><td class="num">${fmt(t.sd,1)}</td></tr>`}).join('')}</tbody></table></div></div>`;
+  // por ejercicio (todas las sesiones)
+  const by={}; rows.filter(r=>r.real!=null&&r.plan!=null).forEach(r=>(by[r.name]=by[r.name]||[]).push(r));
+  const exT=Object.entries(by).map(([n,a])=>({n,st:rpeStats(a)})).sort((x,y)=>Math.abs(y.st.mean)-Math.abs(x.st.mean));
+  // por día, desglosado por ejercicio
+  const days=sessionsOf(f).filter(o=>Object.values(o.L.sets||{}).flat().some(s=>hasR(s.rpe))).reverse();
+  const dayCard=o=>{ const r=rows.filter(x=>x.id===o.id), dst=rpeStats(r), g={}; r.forEach(x=>(g[x.i]=g[x.i]||[]).push(x));
+    return `<div class="card"><div class="rtitle" style="font-size:21px">${dayTitle(o.L,o.d)} · ${fdLong(o.t)}</div>
+    <div class="small muted" style="margin-bottom:6px">${o.L.meso?esc(mesoLabel(o.L.meso))+' · ':''}RPE día ${o.L.rpeDay?'<b class="num" style="color:var(--fg)">'+o.L.rpeDay+'/10</b>':'—'}${dst?` · series: plan ${fmt(dst.plan,1)} → real ${fmt(dst.real,1)} (<b class="${dcls(dst.mean)}">${sgn(dst.mean)}</b>)`:''}</div>
+    <div class="tbl wrap"><table><thead><tr><th>Ejercicio</th><th>Plan</th><th>Real</th><th>Dif.</th></tr></thead><tbody>
+    ${Object.keys(g).map(Number).sort((a,b)=>a-b).map(i=>{const a=g[i], re=avgOf(a.filter(x=>x.real!=null).map(x=>x.real)), pl=a[0].plan, df=re!=null&&pl!=null?re-pl:null;
+      return `<tr><td>${esc(a[0].name)}<div class="small muted">${a.map(x=>x.real!=null?fmt(x.real,1):'—').join(' · ')}</div></td><td class="num pl">${pl!=null?fmt(pl,1):'—'}</td><td class="num">${re!=null?fmt(re,1):'—'}</td><td class="num ${df!=null?dcls(df):''}"><b>${sgn(df)}</b></td></tr>`}).join('')}
+    </tbody></table></div></div>` };
+  return `<h2 class="h2">Plan vs real</h2><div class="muted small">Compara el RPE planificado de cada ejercicio con el RPE real que anotó el alumno. Diferencia = real − plan: positiva, se sintió más duro; negativa, más fácil.</div>
+  <div class="chips">${ids.map(id=>`<button class="chip" data-cf="${id}" aria-pressed="${f===id}">${esc(DATA.athletes[id].name)}</button>`).join('')}</div>
+  <div class="card"><div class="eyebrow" style="margin-bottom:8px">${esc(DATA.athletes[f].name)} · ${st.n} series comparadas</div>
+  <div class="kpis">${mk('Diferencia media',`<span class="${dcls(st.mean)}">${sgn(st.mean)}</span>`,`plan ${fmt(st.plan,1)} → real ${fmt(st.real,1)}`)}${mk('Variación media',fmt(st.abs,1),'diferencia absoluta por serie')}
+  ${mk('Desviación estándar',fmt(st.sd,1),'qué tan dispersa es la diferencia')}${mk('Dentro de ±0,5',pct(st.ok),'series cerca del plan')}</div>
+  <div class="sbar"><b style="width:${100*st.under}%;background:#7fb0c9"></b><b style="width:${100*(1-st.under-st.over)}%;background:var(--surface-2)"></b><b style="width:${100*st.over}%;background:var(--gold)"></b></div>
+  <div class="row small" style="margin-top:4px"><span class="under">${pct(st.under)} 1+ bajo el plan</span><span class="over">${pct(st.over)} 1+ sobre el plan</span></div></div>
+  <div class="card"><div class="eyebrow" style="margin-bottom:6px">Por ejercicio (todas las sesiones)</div><div class="tbl wrap"><table><thead><tr><th>Ejercicio</th><th>Series</th><th>Plan</th><th>Real</th><th>Dif.</th><th>DE</th></tr></thead><tbody>
+  ${exT.map(e=>`<tr><td>${esc(e.n)}</td><td class="num">${e.st.n}</td><td class="num pl">${fmt(e.st.plan,1)}</td><td class="num">${fmt(e.st.real,1)}</td><td class="num ${dcls(e.st.mean)}"><b>${sgn(e.st.mean)}</b></td><td class="num">${fmt(e.st.sd,1)}</td></tr>`).join('')}</tbody></table></div></div>
+  <div class="eyebrow" style="margin-top:4px">Por día</div>${days.map(dayCard).join('')}
+  ${ids.length>1?tot:''}${xlsBtn}`}
+
+// Excel: una hoja por alumno con cada serie (RPE plan vs real) y sus observaciones, por fecha
+function exportExcel(){ if(typeof XLSX==='undefined') return flash('No se pudo cargar el lector de Excel. Revisa tu conexión.',true);
+  const wb=XLSX.utils.book_new(), used=new Set(), r2=v=>v==null||isNaN(v)?'':Math.round(v*100)/100;
+  const list=Object.entries(DATA.athletes).sort((a,b)=>(a[1].coach?1:0)-(b[1].coach?1:0)||String(a[1].name).localeCompare(b[1].name));
+  for(const [aid,a] of list){ const rows=rpeRows(aid), ns=notesOf(aid).slice().sort((x,y)=>x.at-y.at); if(!rows.length&&!ns.length) continue; const st=rpeStats(rows);
+    const aoa=[[`${a.name} · RPE planificado vs real y observaciones`],[`Exportado el ${fdNum(Date.now())} desde Powerosso App`],[]];
+    if(st) aoa.push(['Series comparadas','Diferencia media (real − plan)','Variación media (absoluta)','Desviación estándar','% dentro de ±0,5','% 1+ sobre el plan','% 1+ bajo el plan'],
+      [st.n,r2(st.mean),r2(st.abs),r2(st.sd),r2(100*st.ok),r2(100*st.over),r2(100*st.under)],[]);
+    aoa.push(['SERIES'],['Fecha','Mesociclo','Semana','Día','Ejercicio','Serie','kg','Reps','RPE plan','RPE real','Diferencia','RPE del día','Observación del alumno']);
+    rows.forEach(r=>{ const obs=r.k===1?ns.filter(o=>o.w===r.L.w&&o.d===r.L.d&&o.ex===r.i&&(o.meso||r.L.meso)===r.L.meso).map(o=>[o.tag,o.text].filter(Boolean).join(': ')).join(' | '):'';
+      aoa.push([fdNum(r.s.t||r.t),mesoLabel(r.L.meso||''),r.L.w,`Día ${r.L.d}${r.d&&r.d.weekday?' ('+title(r.d.weekday)+')':''}`,r.name,r.k,hasR(r.s.kg)?+r.s.kg:'',r.s.reps??'',r.plan??'',r.real??'',r.plan!=null&&r.real!=null?r2(r.real-r.plan):'',r.L.rpeDay||'',obs]) });
+    if(!rows.length) aoa.push(['Sin series registradas']);
+    aoa.push([],['OBSERVACIONES'],['Fecha','Mesociclo','Semana','Día','Ejercicio','Observación','Comentario','Respuesta del coach','Revisada']);
+    ns.forEach(o=>aoa.push([fdNum(o.at),mesoLabel(o.meso||''),o.w,o.dayLabel||`Día ${o.d}`,title(o.exName||''),o.tag||'',o.text||'',o.reply||'',o.reviewed?'Sí':'No']));
+    if(!ns.length) aoa.push(['Sin observaciones']);
+    const ws=XLSX.utils.aoa_to_sheet(aoa); ws['!cols']=[12,14,8,16,30,7,8,7,9,9,11,11,40].map(w=>({wch:w}));
+    let nm=String(a.name||aid).replace(/[\[\]:*?\/\\]/g,' ').trim().slice(0,31)||'Alumno', base=nm, k=2; while(used.has(nm.toLowerCase())) nm=base.slice(0,28)+' '+(k++); used.add(nm.toLowerCase());
+    XLSX.utils.book_append_sheet(wb,ws,nm) }
+  if(!wb.SheetNames.length) return flash('Todavía no hay series ni observaciones para exportar.',true);
+  try{ XLSX.writeFile(wb,`powerosso-rpe-observaciones-${new Date().toISOString().slice(0,10)}.xlsx`); flash(`Excel descargado: ${wb.SheetNames.length} ${wb.SheetNames.length===1?'hoja':'hojas'}, una por alumno.`) }catch(e){ flash('No se pudo crear el Excel.',true) } }
 
 function vNotasCoach(){const all=Object.entries(DATA.notes).map(([id,n])=>({id,...n})).sort((a,b)=>(a.reviewed?1:0)-(b.reviewed?1:0)||b.at-a.at);
   const f=S.nfilter||''; const shown=all.filter(n=>!f||n.aid===f);
@@ -568,7 +656,7 @@ function startTimer(rest,label,set){S.timer={end:Date.now()+rest.max*1000,total:
   const el=$('#timer'), C=2*Math.PI*54, st=set&&((ensureLog().sets[set.ex]||[])[set.i]||{});
   el.innerHTML=`<div class="in"><img src="${LOGO}" alt="" style="width:56px"><div class="eyebrow">Descanso</div><div class="ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="54" fill="none" stroke="var(--surface-2)" stroke-width="8"/><circle id="t-arc" cx="60" cy="60" r="54" fill="none" stroke="var(--gold)" stroke-width="8" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="0"/></svg><div class="tt"><b id="t-left"></b><span id="t-tot">de ${fmtRest(rest.max)}</span></div></div>
   <div id="t-msg"></div>
-  ${set?`<div class="rpebox"><div class="q">¿Qué tan dura fue la serie del 1 al 10? (RPE REAL)</div><input id="t-rpe" data-rpeset="${set.ex}:${set.i}" type="text" inputmode="decimal" autocomplete="off" placeholder="—" value="${st.rpe!=null&&st.rpe!==''?esc(st.rpe):''}"></div>`:''}
+  ${set?`<div class="rpebox"><div class="q">${st.rpe!=null&&st.rpe!==''?`¿Deseas modificar el RPE? <span class="muted small">(serie ${set.n})</span>`:'¿Qué tan dura fue la serie del 1 al 10? (RPE REAL)'}</div><input id="t-rpe" data-rpeset="${set.ex}:${set.i}" type="text" inputmode="decimal" autocomplete="off" placeholder="—" value="${st.rpe!=null&&st.rpe!==''?esc(st.rpe):''}"></div>`:''}
   <div class="small muted">${esc(label)}</div>
   <div class="btns3"><button class="btn ghost sm" data-t="-15">−15 s</button><button class="btn ghost sm" data-t="+30">+30 s</button><button class="btn sm" data-t="skip" id="t-skip">Saltar</button></div></div>`;
   clearInterval(tick); tick=setInterval(drawTimer,250); drawTimer()}
@@ -590,17 +678,17 @@ function render(){
     if(!ATH()){S.mode=S.isCoach?'coach':'nolink';return render()}
     if(!PLAN()){hdr.hidden=true;nav.hidden=true;$('#main').innerHTML=`<div class="splash"><img src="${LOGO}" alt="Team Powerosso"><h2 class="h2">Hola ${esc((ATH().name||'').split(' ')[0])}</h2><div class="muted">Tu coach todavía no carga tu planificación.</div></div>`;return}
     if(S.week==null||!wkObj(S.week)) S.week=currentWeek();
-    ban.innerHTML=S.isCoach?`<div class="banner"><span>Estás viendo la app como <b>${esc(ATH().name)}</b></span><button class="chip" data-act="to-coach">Volver al panel</button></div>`:'';
+    ban.innerHTML=(S.isCoach?`<div class="banner"><span>Estás viendo la app como <b>${esc(ATH().name)}</b></span><button class="chip" data-act="to-coach">Volver al panel</button></div>`:'')+installBanner();
     hdr.hidden=false; hdr.innerHTML=athleteHeader();
     const un=notesOf(S.aid).filter(n=>n.reply&&!n.seen).length;
     $('#main').innerHTML=S.tab==='dashboard'?vDash():S.tab==='notas'?vMisNotas():S.view==='sesion'?vSesion():S.view==='rpedia'?vRpeDia():S.view==='resumen'?vResumen():vDias();
     nav.hidden=false; $('#tabs').innerHTML=[['entrenar','Entrenar'],['dashboard','Dashboard'],['notas','Mis notas']].map(([k,l])=>`<button data-tab="${k}" aria-current="${S.tab===k}">${l}${k==='notas'&&un?`<span class="badge">${un}</span>`:''}</button>`).join('');
   } else { // coach
-    ban.innerHTML='';
+    ban.innerHTML=installBanner();
     if(S.ctab==='alumno'&&ATH()){ if(PLAN()){ if(S.week==null||!wkObj(S.week)) S.week=currentWeek(); hdr.hidden=false; hdr.innerHTML=athleteHeader() } else { hdr.hidden=false; hdr.innerHTML=brand('Team Powerosso',esc(ATH().name)) } $('#main').innerHTML=vCoachAthlete() }
-    else { if(S.ctab==='alumno') S.ctab='alumnos'; hdr.hidden=false; hdr.innerHTML=brand('Team Powerosso','Panel del coach'); $('#main').innerHTML=S.ctab==='notas'?vNotasCoach():S.ctab==='rpe'?vRpeCoach():vAlumnos() }
+    else { if(S.ctab==='alumno') S.ctab='alumnos'; hdr.hidden=false; hdr.innerHTML=brand('Team Powerosso','Panel del coach'); $('#main').innerHTML=S.ctab==='notas'?vNotasCoach():S.ctab==='rpe'?vRpeCoach():S.ctab==='cmp'?vCompara():vAlumnos() }
     const un=Object.values(DATA.notes).filter(n=>!n.reviewed).length;
-    nav.hidden=false; $('#tabs').innerHTML=[['alumnos','Alumnos'],['notas','Observaciones'],['rpe','RPE real']].map(([k,l])=>`<button data-ctab="${k}" aria-current="${S.ctab===k||(k==='alumnos'&&S.ctab==='alumno')}">${l}${k==='notas'&&un?`<span class="badge">${un}</span>`:''}</button>`).join('');
+    nav.hidden=false; $('#tabs').innerHTML=[['alumnos','Alumnos'],['notas','Observaciones'],['rpe','RPE real'],['cmp','Plan vs real']].map(([k,l])=>`<button data-ctab="${k}" aria-current="${S.ctab===k||(k==='alumnos'&&S.ctab==='alumno')}">${l}${k==='notas'&&un?`<span class="badge">${un}</span>`:''}</button>`).join('');
   }
   const f=$('#xlsx'); if(f) f.addEventListener('change',e=>readXlsx(e.target.files[0],r=>setPlanilla(S.aid,r)));
   const nf=$('#new-xlsx'); if(nf) nf.addEventListener('change',e=>{const file=e.target.files[0]; if(!file) return; readXlsx(file,r=>{S.pending=r; $('#new-file-lbl').textContent=`Lista: ${Object.keys(r.plans).map(mesoLabel).join(', ')}.`})});
@@ -720,6 +808,7 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
   if(a.setmeso) return setMeso(S.aid,a.setmeso);
   if(a.csub){S.csub=a.csub; S.importMsg=null; return render()}
   if(a.rf!==undefined){S.rfilter=a.rf; return render()}
+  if(a.cf!==undefined){S.cfilter=a.cf; return render()}
   if(a.nf!==undefined){S.nfilter=a.nf; return render()}
   if(a.review){const n=DATA.notes[a.review]; Store.put('notes',a.review,{...n,reviewed:!n.reviewed}); return render()}
   if(a.reply){S.replyTo=a.reply; render(); const t=$('#reply-txt'); t&&t.focus(); return}
@@ -733,8 +822,13 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
     case 'set': { const x=d.exercises[S.ex], L=ensureLog(); const num=v=>parseFloat(String(v).replace(',','.'));
       const kg=num($('#in-kg').value), reps=parseInt($('#in-reps').value);
       if(isNaN(reps)) return flash('Anota cuántas repeticiones hiciste.',true);
-      const arr=(L.sets[S.ex]=L.sets[S.ex]||[]); arr.push({kg:isNaN(kg)?null:kg,reps,rpe:null,rpePlan:x.rpeN||null,t:Date.now()}); saveLog();
-      S.toast=''; render(); return startTimer(x.rest,nextLabel(),{ex:S.ex,i:arr.length-1,name:x.name,n:arr.length,plan:x.rpeN}) }
+      const rr=(($('#cur-rpe')||{}).value||'').replace(',','.').trim(), rv=parseFloat(rr);
+      if(rr!==''&&!(rv>=1&&rv<=10)) return flash('El RPE real va del 1 al 10.',true);
+      const arr=(L.sets[S.ex]=L.sets[S.ex]||[]); arr.push({kg:isNaN(kg)?null:kg,reps,rpe:rr===''?null:rv,rpePlan:x.rpeN||null,t:Date.now()}); saveLog();
+      const setRef={ex:S.ex,i:arr.length-1,name:x.name,n:arr.length,plan:x.rpeN};
+      // ejercicio terminado: pasa solo al siguiente (el descanso sigue corriendo)
+      if(arr.length>=x.sets&&d.exercises[S.ex+1]){ S.ex++; S.obsOpen=false }
+      S.toast=''; render(); return startTimer(x.rest,nextLabel(),setRef) }
     case 'nextex': case 'skip': S.ex=Math.min(S.ex+1,d.exercises.length-1); S.toast=''; S.obsOpen=false; return render();
     case 'prevex': S.ex=Math.max(0,S.ex-1); S.toast=''; S.obsOpen=false; return render();
     case 'finish': { const L=ensureLog(); L.done=true; L.finishedAt=Date.now(); saveLog(); stopTimer(); S.dayRpe=L.rpeDay??null; S.view='rpedia'; S.toast=''; return render() }
@@ -763,6 +857,8 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
     case 'copy-all': { const t=Object.entries(DATA.athletes).filter(([k,x])=>!x.coach).sort((x,y)=>String(x[1].name).localeCompare(y[1].name)).map(([k,x])=>`${x.name}: ${linkFor(k)}`).join('\n');
       try{ navigator.clipboard.writeText(t).then(()=>flash('Links de todos copiados. Pégalos donde quieras.')).catch(()=>flash('No se pudo copiar. Copia cada link desde su tarjeta.',true)) }catch(e){ flash('No se pudo copiar. Copia cada link desde su tarjeta.',true) } return }
     case 'bat': return downloadBat();
+    case 'xls': return exportExcel();
+    case 'install': if(installEv){ const ev=installEv; installEv=null; ev.prompt(); ev.userChoice.finally(()=>render()) } return;
     case 'reply-cancel': S.replyTo=null; return render();
     case 'reply-save': { const n=DATA.notes[a.id], txt=($('#reply-txt').value||'').trim(); Store.put('notes',a.id,{...n,reply:txt,reviewed:true,seen:false}); S.replyTo=null; return render() }
   }
@@ -786,11 +882,17 @@ document.addEventListener('change',e=>{const t=e.target; if(t.dataset&&t.dataset
 function softRender(){const ae=document.activeElement; if(ae&&/INPUT|TEXTAREA/.test(ae.tagName)&&ae.closest('main')){S.dirty=true;return} render()}
 document.addEventListener('focusout',()=>setTimeout(()=>{const ae=document.activeElement; if(S.dirty&&!(ae&&/INPUT|TEXTAREA/.test(ae.tagName))){S.dirty=false;render()}},50));
 
+let installEv=null;
+addEventListener('beforeinstallprompt',e=>{e.preventDefault(); installEv=e; if(S.mode!=='loading') render()});
+addEventListener('appinstalled',()=>{installEv=null; render()});
+const installBanner=()=>installEv?`<div class="banner"><span>Instala Powerosso como app en tu teléfono</span><button class="chip" data-act="install">Instalar</button></div>`:'';
 (async function boot(){
   await Store.init();
+  try{ if(Store.kind==='supa'&&'serviceWorker' in navigator&&location.protocol==='https:') navigator.serviceWorker.register('sw.js').catch(()=>{}) }catch(e){}
   if(Store.kind==='supa'){
     if(!Store.token){ S.mode='nolink'; return render() }
-    try{ await Store.pull(true) }catch(e){ S.mode='nolink'; if(e.status) S.badLink=true; else S.netErr=true; return render() }
+    try{ await Store.pull(true) }catch(e){ S.mode='nolink'; if(e.status){ S.badLink=true; if(Store.fromSaved) savedToken.clear() } else S.netErr=true; return render() }
+    savedToken.set(Store.token,S.isCoach);
     S.ready=3; route();
     const again=()=>{ if(document.hidden) return; Store.pull(false).then(ch=>ch&&softRender()).catch(()=>{}) };
     setInterval(again,20000); document.addEventListener('visibilitychange',again); return }
