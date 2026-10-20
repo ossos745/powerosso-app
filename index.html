@@ -419,7 +419,7 @@ function noteHtml(n,coach){const cls=/Molestia|pesado/.test(n.tag||'')?'bad':/m�
   ${n.exName?`<div class="small muted">${title(n.exName)}</div>`:''}
   <div>${n.tag?`<b>${esc(n.tag)}</b>${n.text?' · ':''}`:''}${esc(n.text||'')}</div>
   ${n.reply?`<div class="reply"><span class="gold">Coach:</span> ${esc(n.reply)}</div>`:''}
-  ${coach?`<div class="row" style="justify-content:flex-start;gap:6px;margin-top:4px">${S.replyTo===n.id?'':`<button class="chip" data-reply="${n.id}">Responder</button>`}<button class="chip" data-review="${n.id}" aria-pressed="${!!n.reviewed}">${n.reviewed?'Revisada':'Marcar revisada'}</button></div>
+  ${coach?`<div class="row" style="justify-content:flex-start;gap:6px;margin-top:4px">${S.replyTo===n.id?'':`<button class="chip" data-reply="${n.id}">Responder</button>`}<button class="chip" data-review="${n.id}" aria-pressed="${!!n.reviewed}">${n.reviewed?'Revisada':'Marcar revisada'}</button><button class="chip" data-delnote="${n.id}">Borrar</button></div>
   ${S.replyTo===n.id?`<textarea id="reply-txt" placeholder="Tu respuesta para ${esc(DATA.athletes[n.aid]?.name||'el alumno')}">${esc(n.reply||'')}</textarea><div class="btns"><button class="btn ghost sm" data-act="reply-cancel">Cancelar</button><button class="btn goldb sm" data-act="reply-save" data-id="${n.id}">Guardar respuesta</button></div>`:''}`:''}</div>`}
 
 function vSesion(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day), L=ensureLog(); const x=d.exercises[S.ex]; const done=(L.sets[S.ex]||[]);
@@ -475,7 +475,7 @@ function dayTable(w,d,coach){const L=dayLog(w.n,d.n);
   return `<div class="card"><div class="eyebrow" style="margin-bottom:6px">${coach?`${dayName(d)} · ${title(d.focus)}`:'Lo que hiciste'}</div><div class="tbl wrap"><table><thead><tr><th>Ejercicio</th><th>Plan</th><th>Real</th></tr></thead><tbody>
   ${d.exercises.map((x,i)=>{const st=(L&&L.sets[i])||[]; const best=st.length?st.reduce((a,s)=>(+s.kg>=+a.kg?s:a)):null; const ns=exNotes(w.n,d.n,i);
     return `<tr><td>${title(x.name)}${ns.length?`<div class="small gold">${ns.map(n=>esc(n.tag||'Nota')+(n.text?': '+esc(n.text):'')).join('<br>')}</div>`:''}</td><td class="pl num">${x.sets}×${esc(x.reps)}${x.kg!=null?'<br>'+fmt(x.kg,1)+' kg':''}${x.rpe!=null?' @'+esc(x.rpe):''}</td><td class="num">${st.length?`${st.length}/${x.sets}<br>${best.kg!=null&&best.kg!==''?fmt(+best.kg,1)+'×':''}${best.reps}${best.rpe!=null&&best.rpe!==''?' @'+fmt(+best.rpe,1):''}`:'<span class="muted">—</span>'}</td></tr>`}).join('')}
-  </tbody></table></div></div>`}
+  </tbody></table></div>${coach&&L?`<div style="margin-top:8px;text-align:right"><button class="chip" data-dellog="${logId(S.aid,w.n,d.n)}">Borrar registro de este día</button></div>`:''}</div>`}
 
 function kpis(r,p,kg){const k=(l,v,pv,u='')=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}${u}</div><div class="p">plan ${pv}${u}</div></div>`;
   return `<div class="kpis">${kg?k('Kilos levantados',fmt(r.ton),fmt(p.ton),' kg'):k('Tonelaje',fmt(r.ton/1000,2),fmt(p.ton/1000,2),' t')}${k('Carga (kg×RPE/10)',fmt(r.carga/1000,2),fmt(p.carga/1000,2),' t')}${k('Series efectivas',fmt(r.eff),fmt(p.eff))}${k('RPE medio',fmt(r.rpe,1),fmt(p.rpe,1))}</div>`}
@@ -629,7 +629,8 @@ function vRpeCoach(){ const f=S.rfilter||'';
       const sp=x?x.sets:null;
       return `<tr><td>${x?title(x.name):'Ejercicio '+(o.i+1)}${x?`<div class="small muted">plan ${x.sets}×${esc(x.reps||'—')}</div>`:''}${n?`<div class="small muted">${o.arr.map((s,j)=>`S${j+1} ${hasR(s.kg)&&+s.kg?fmt(+s.kg,1)+'×':''}${s.reps??'—'}${hasR(s.rpe)?' @'+fmt(+s.rpe,1):''}`).join(' · ')}</div>`:''}${bil}</td>
       <td class="num"><b class="${sp&&n<sp?'under':''}">${n}</b><span class="pl">/${sp??'—'}</span></td><td class="num">${n?pr(kpl,kre,1):`<span class="pl">${kpl!=null?fmt(kpl,1):'—'}</span>`}</td><td class="num">${pr(rpl,rre,1)}</td></tr>`}).join('')}
-    </tbody></table></div></div>` };
+    </tbody></table></div>
+    <div style="margin-top:8px;text-align:right"><button class="chip" data-dellog="${L.id}">Borrar registro de este día</button></div></div>` };
   return `<h2 class="h2">Plan vs real</h2><div class="muted small">Cada día de entrenamiento: lo planificado frente a lo que el alumno hizo en series, kg y RPE. Debajo de cada valor va la diferencia (real − plan). En celeste, menos de lo planificado; en color, 1 punto de RPE o más sobre el plan.</div>
   <div class="chips"><button class="chip" data-rf="" aria-pressed="${!f}">Todos</button>${ids.map(id=>`<button class="chip" data-rf="${id}" aria-pressed="${f===id}">${esc(DATA.athletes[id]?.name||id)}</button>`).join('')}</div>
   ${shown.length?shown.map(card).join(''):`<div class="card muted">Todavía no hay entrenamientos registrados. Aparecen aquí cuando un alumno marca series.</div>`}`}
@@ -955,6 +956,11 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
   if(a.csub){S.csub=a.csub; S.importMsg=null; return render()}
   if(a.wview!==undefined){ S.wview=a.wview==='1'; try{localStorage.setItem('powerosso.wview',S.wview?'1':'')}catch(e){} return render() }
   if(a.editset!==undefined){ S.editSet=S.editSet===+a.editset?null:+a.editset; render(); const i=$('#edit-rpe'); i&&i.focus(); return }
+  if(a.delnote){ const n=DATA.notes[a.delnote]; if(!n||!confirm(`¿Borrar esta observación de ${DATA.athletes[n.aid]?.name||'el alumno'}${n.tag?` (“${n.tag}”)`:''}? No se puede deshacer.`)) return;
+    Promise.resolve(Store.del('notes',a.delnote)).then(()=>flash('Observación borrada.')); return render() }
+  if(a.dellog){ const L=DATA.logs[a.dellog]; if(!L) return; const nm=DATA.athletes[L.aid]?.name||'el alumno';
+    if(!confirm(`¿Borrar el registro de ${nm} de la semana ${L.w}, día ${L.d}? Se borran sus series, RPE y RPE del día, y el día vuelve a quedar pendiente. Sus observaciones se mantienen. No se puede deshacer.`)) return;
+    Promise.resolve(Store.del('logs',a.dellog)).then(()=>flash(`Registro de la semana ${L.w}, día ${L.d} borrado.`)); return render() }
   if(a.delask){S.delAsk=a.delask; return render()}
   if(a.rf!==undefined){S.rfilter=a.rf; return render()}
   if(a.nf!==undefined){S.nfilter=a.nf; return render()}
