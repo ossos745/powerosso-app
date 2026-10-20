@@ -453,7 +453,8 @@ function vAlumnos(){const list=Object.entries(DATA.athletes).map(([id,a])=>({id,
       <div class="btns" style="margin-top:10px"><button class="btn ghost sm" data-open="${a.id}">Ver rutina</button><button class="btn ${a.coach?'goldb':'ghost'} sm" data-train="${a.id}">${a.coach?'Entrenar':'Vista alumno'}</button></div>`
       :`<div class="small muted">${a.file?`La planilla “${esc(a.file)}” no tiene hojas de mesociclo (Hipertrofia, Fuerza base, Volumen, Peaking o Tapering).`:'Todavía no tiene planilla.'}</div>
       <div class="btns" style="margin-top:10px"><button class="btn ghost sm" data-open="${a.id}">Cargar planilla</button></div>`}
-      ${a.coach?'':`<div class="small gold" style="margin-top:10px">Link de ${esc(a.name.split(' ')[0])}</div><div class="link" style="margin-top:4px">${esc(linkFor(a.id))}</div><button class="chip" style="margin-top:6px" data-copy="${a.id}">Copiar link</button>`}
+      ${a.coach?'':`<div class="small gold" style="margin-top:10px">Link de ${esc(a.name.split(' ')[0])}</div><div class="link" style="margin-top:4px">${esc(linkFor(a.id))}</div><button class="chip" style="margin-top:6px" data-copy="${a.id}">Copiar link</button> <button class="chip" style="margin-top:6px" data-delask="${a.id}">Eliminar alumno</button>`}
+      ${S.delAsk===a.id?delPanel(a.id):''}
     </div></div></div>`}).join('')}
   ${S.adding?`<div class="card"><div class="eyebrow" style="margin-bottom:8px">Nuevo alumno</div><label class="f">Nombre<input class="t" id="new-name" placeholder="Nombre y apellido"></label>
     <label class="file" style="margin-top:10px"><input type="file" id="new-xlsx" accept=".xlsx,.xls,.xlsm"><b>Elegir su planificación (.xlsx)</b><span class="muted small" id="new-file-lbl">La app lee las hojas de mesociclo: Hipertrofia, Fuerza base, Volumen, Peaking y Tapering.</span></label>
@@ -463,6 +464,22 @@ function vAlumnos(){const list=Object.entries(DATA.athletes).map(([id,a])=>({id,
   ${vTema()}${vAvisos()}
   ${vRespaldo()}`}
 
+function delPanel(aid){ const a=DATA.athletes[aid]; const others=Object.entries(DATA.athletes).filter(([k,x])=>k!==aid).sort((x,y)=>String(x[1].name).localeCompare(y[1].name));
+  return `<div class="card" style="border-color:var(--red);margin-top:10px"><b>¿Eliminar a ${esc(a.name)}?</b>
+  <div class="small muted" style="margin-top:4px">Se borran el alumno, su link, sus registros y sus observaciones. No se puede deshacer: exporta un respaldo antes si quieres guardarlos.</div>
+  ${a.file?`<label class="f" style="margin-top:10px">Su planilla “${esc(a.file)}”<select class="t" id="del-to"><option value="">Borrarla también</option>${others.map(([k,x])=>`<option value="${k}">Pasársela a ${esc(x.name)}</option>`).join('')}</select></label>
+  <div class="small muted" style="margin-top:6px">Si este alumno apareció porque renombraste un Excel, pásale la planilla al alumno correcto: así el actualizador (.bat) la reconoce y no lo vuelve a crear. Si la borras y el Excel sigue en tu carpeta Alumnos con ese nombre, el actualizador lo creará de nuevo.</div>`:''}
+  <div class="btns" style="margin-top:10px"><button class="btn ghost sm" data-act="del-cancel">Cancelar</button><button class="btn sm" data-act="del-ok" data-id="${aid}">Eliminar</button></div></div>`}
+async function delAthlete(aid,toAid){ const at=DATA.athletes[aid]; if(!at) return; const file=at.file;
+  try{
+    if(toAid&&file&&DATA.athletes[toAid]){ const t=JSON.parse(JSON.stringify(DATA.athletes[toAid])); t.file=file; if(at.plans) t.plans=at.plans; delete t.plan; t.updatedAt=Date.now(); await Store.put('athletes',toAid,t) }
+    await Store.del('athletes',aid);
+    Object.keys(DATA.logs).filter(k=>DATA.logs[k].aid===aid).forEach(k=>Store.kind==='supa'?delete DATA.logs[k]:Store.del('logs',k));
+    Object.keys(DATA.notes).filter(k=>DATA.notes[k].aid===aid).forEach(k=>Store.kind==='supa'?delete DATA.notes[k]:Store.del('notes',k));
+    if(Store.kind==='supa'){ if(file&&!toAid&&!Object.values(DATA.athletes).some(x=>x.file===file)) await rpc('pw_del',{p_token:Store.token,p_coll:'files',p_id:file}).catch(()=>{}); await Store.pull(true) }
+  }catch(e){ return flash('No se pudo eliminar. Revisa tu conexión.',true) }
+  S.delAsk=null; if(S.aid===aid){ S.ctab='alumnos'; S.aid=null }
+  flash(`${at.name} eliminado${toAid?`. Su planilla ahora es de ${DATA.athletes[toAid]?.name||'otro alumno'}`:''}.`) }
 function vRespaldo(){const coachId=Object.keys(DATA.athletes).find(k=>DATA.athletes[k].coach);
   return `<div class="card"><div class="eyebrow" style="margin-bottom:6px">Respaldo y planillas</div>
   ${Store.kind==='supa'&&coachId?`<div class="small muted">Tu link de coach (guárdalo, no lo compartas):</div><div class="link" style="margin-top:4px">${esc(linkFor(coachId))}</div><button class="chip" style="margin-top:6px" data-copy="${coachId}">Copiar mi link</button>
@@ -635,7 +652,7 @@ function vCoachAthlete(){const a=ATH(), P=PLAN(); let sub=S.csub||'rutina'; if(!
   if(sub==='datos') body=`<div class="card"><label class="f">Nombre<input class="t" id="ed-name" value="${esc(a.name||'')}"></label>
     <div class="btns" style="margin-top:8px"><button class="btn goldb sm" data-act="ed-save">Guardar nombre</button></div>
     ${a.coach?'':`<div class="small muted" style="margin-top:14px">Link de ${esc((a.name||'').split(' ')[0])}:</div><div class="link" style="margin-top:4px">${esc(linkFor(S.aid))}</div><button class="chip" style="margin-top:6px" data-copy="${S.aid}">Copiar link</button>
-    <div style="margin-top:16px"><button class="btn ghost sm" data-act="ed-del">Eliminar alumno</button></div>`}</div>`;
+    <div style="margin-top:16px">${S.delAsk===S.aid?delPanel(S.aid):`<button class="btn ghost sm" data-delask="${S.aid}">Eliminar alumno</button>`}</div>`}</div>`;
   if(sub==='rutina') body=w.days.map(d=>dayTable(w,d,true)).join('');
   if(sub==='dash') body=vDash();
   if(sub==='notas'){const ns=notesOf(S.aid); body=ns.length?`<div class="card" style="display:flex;flex-direction:column;gap:12px">${ns.map(n=>noteHtml(n,true)).join('')}</div>`:`<div class="card muted">${esc(a.name)} todavía no deja observaciones.</div>`}
@@ -783,6 +800,7 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
   if(a.copy) return copy(linkFor(a.copy));
   if(a.setmeso) return setMeso(S.aid,a.setmeso);
   if(a.csub){S.csub=a.csub; S.importMsg=null; return render()}
+  if(a.delask){S.delAsk=a.delask; return render()}
   if(a.rf!==undefined){S.rfilter=a.rf; return render()}
   if(a.nf!==undefined){S.nfilter=a.nf; return render()}
   if(a.review){const n=DATA.notes[a.review]; Store.put('notes',a.review,{...n,reviewed:!n.reviewed}); return render()}
@@ -829,6 +847,8 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
       const id=`${slug(name.split(' ')[0])}-${rnd()}`, r=S.pending; S.adding=false; S.pending=null;
       Promise.resolve(Store.put('athletes',id,{name,coach:false,createdAt:Date.now()})).then(()=>setPlanilla(id,r)).then(()=>{ if(Store.kind==='supa') return Store.pull(true) }).then(()=>flash(`${name} agregado. Copia su link y envíaselo.`)); return }
     case 'ed-save': { const nm=($('#ed-name').value||'').trim(); if(!nm) return flash('Escribe un nombre.',true); const at=JSON.parse(JSON.stringify(ATH())); at.name=nm; Store.put('athletes',S.aid,at); return flash('Nombre guardado.') }
+    case 'del-cancel': S.delAsk=null; return render();
+    case 'del-ok': { const to=($('#del-to')||{}).value||''; return delAthlete(a.id,to||null) }
     case 'ed-del': { const at=ATH(); if(!confirm(`¿Eliminar a ${at.name} con todos sus registros y observaciones? Exporta un respaldo antes si quieres guardarlos.`)) return;
       Store.del('athletes',S.aid); Object.keys(DATA.logs).filter(k=>DATA.logs[k].aid===S.aid).forEach(k=>Store.kind==='supa'?delete DATA.logs[k]:Store.del('logs',k)); Object.keys(DATA.notes).filter(k=>DATA.notes[k].aid===S.aid).forEach(k=>Store.kind==='supa'?delete DATA.notes[k]:Store.del('notes',k));
       S.ctab='alumnos'; return flash(`${at.name} eliminado.`) }
