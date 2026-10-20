@@ -128,6 +128,8 @@ textarea{resize:vertical;min-height:64px}
 .rpebox.ok{border-color:var(--green);box-shadow:none}
 .rpein{display:flex;gap:8px}.rpein input{flex:1;min-width:0}
 .okbtn{flex:0 0 64px;border:0;border-radius:10px;background:var(--green);color:#06140c;font:800 30px var(--display);cursor:pointer}
+.setchip{font:inherit;color:inherit;background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:4px 10px;cursor:pointer}
+.setchip[aria-pressed="true"]{border-color:var(--fg)}
 .bilbo{margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--surface-2);border:1px solid var(--line)}
 .bilbo b{font:700 22px var(--display);color:var(--gold-2)}
 .chip[aria-pressed="true"] .sw{box-shadow:0 0 0 2px var(--bg);border-color:var(--fg)}
@@ -346,7 +348,11 @@ function vSesion(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day), L=ensur
     <div class="spec"><div><b>${x.sets}</b><span>Series</span></div><div><b>${esc(x.reps||'—')}</b><span>Reps</span></div><div><b>${esc(x.rpe??'—')}</b><span>RPE</span></div><div><b>${fmtRest(x.rest.max)}</b><span>Descanso</span></div></div>
   </div>
   ${toastHtml()}
-  ${done.length?`<div class="setlog">${done.map((s,i)=>`<span>S${i+1} · ${s.kg!=null&&s.kg!==''?fmt(+s.kg,1)+'×':''}${s.reps}${s.rpe!=null&&s.rpe!==''?' @'+fmt(+s.rpe,1):''}${isBilbo(x)&&rm1(s.kg,s.reps)?' · 1RM '+fmt(rm1(s.kg,s.reps),1):''}</span>`).join('')}</div>`:''}
+  ${done.length?`<div class="setlog">${done.map((s,i)=>`<button class="setchip" data-editset="${i}" aria-pressed="${S.editSet===i}">S${i+1} · ${s.kg!=null&&s.kg!==''?fmt(+s.kg,1)+'×':''}${s.reps}${s.rpe!=null&&s.rpe!==''?' @'+fmt(+s.rpe,1):' · sin RPE'}${isBilbo(x)&&rm1(s.kg,s.reps)?' · 1RM '+fmt(rm1(s.kg,s.reps),1):''} ✎</button>`).join('')}</div>
+  ${S.editSet!=null&&done[S.editSet]?`<div class="rpebox plain"><div class="q">Modificar RPE · serie ${S.editSet+1} <span class="muted small">(${done[S.editSet].kg!=null&&done[S.editSet].kg!==''?fmt(+done[S.editSet].kg,1)+' kg × ':''}${done[S.editSet].reps} reps)</span></div>
+  <div class="rpein"><input id="edit-rpe" type="text" inputmode="decimal" autocomplete="off" placeholder="—" value="${hasR(done[S.editSet].rpe)?esc(done[S.editSet].rpe):''}"><button class="okbtn" data-act="editset-ok" aria-label="Guardar RPE">✓</button></div>
+  <div class="row" style="margin-top:8px"><span class="small muted">Deja vacío y aprieta ✓ para quitar el RPE.</span><button class="chip" data-act="editset-cancel">Cancelar</button></div></div>`
+  :`<div class="small muted" style="margin-top:-4px">Toca una serie hecha para modificar su RPE.</div>`}`:''}
   ${!allDone?`<div class="card"><div class="eyebrow" style="margin-bottom:8px">Serie ${done.length+1} de ${x.sets}${/AMRAP|FALLO|>=/i.test(x.reps+x.name)?' · anota cuántas hiciste':''}</div>
     <div class="inputs" style="grid-template-columns:1fr 1fr"><label class="f">kg<input id="in-kg" inputmode="decimal" value="${esc(def.kg)}"></label><label class="f">reps<input id="in-reps" inputmode="numeric" value="${esc(def.reps)}" placeholder="?"></label></div>
     ${isBilbo(x)?`<div class="bilbo" id="bilbo-1rm">${bilboTxt(def.kg,def.reps)}</div>`:''}
@@ -800,12 +806,13 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
   if(a.copy) return copy(linkFor(a.copy));
   if(a.setmeso) return setMeso(S.aid,a.setmeso);
   if(a.csub){S.csub=a.csub; S.importMsg=null; return render()}
+  if(a.editset!==undefined){ S.editSet=S.editSet===+a.editset?null:+a.editset; render(); const i=$('#edit-rpe'); i&&i.focus(); return }
   if(a.delask){S.delAsk=a.delask; return render()}
   if(a.rf!==undefined){S.rfilter=a.rf; return render()}
   if(a.nf!==undefined){S.nfilter=a.nf; return render()}
   if(a.review){const n=DATA.notes[a.review]; Store.put('notes',a.review,{...n,reviewed:!n.reviewed}); return render()}
   if(a.reply){S.replyTo=a.reply; render(); const t=$('#reply-txt'); t&&t.focus(); return}
-  if(a.day){ const L0=dayLog(S.week,+a.day);
+  if(a.day){ S.editSet=null; const L0=dayLog(S.week,+a.day);
     if(L0&&L0.done){ S.day=+a.day; S.toast='';
       if(!confirm('Este día ya está registrado. ¿Quieres repetirlo? Se reemplaza lo anotado antes y queda con la fecha de hoy.')){ S.view='resumen'; return render() }
       const L=ensureLog(); L.sets={}; L.done=false; L.rpeDay=null; L.finishedAt=null; L.trainedAt=Date.now(); saveLog() }
@@ -818,7 +825,7 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
     case 'back': S.view='dias'; S.toast=''; return render();
     case 'set': { const x=d.exercises[S.ex], L=ensureLog(); const num=v=>parseFloat(String(v).replace(',','.'));
       const kg=num($('#in-kg').value), reps=parseInt($('#in-reps').value);
-      if(isNaN(reps)) return flash('Anota cuántas repeticiones hiciste.',true);
+      if(isNaN(reps)) return flash('Anota cuántas repeticiones hiciste.',true); S.editSet=null;
       const rr=(($('#cur-rpe')||{}).value||'').replace(',','.').trim(), rv=parseFloat(rr);
       if(rr!==''&&!(rv>=1&&rv<=10)) return flash('El RPE real va del 1 al 10.',true);
       const arr=(L.sets[S.ex]=L.sets[S.ex]||[]); arr.push({kg:isNaN(kg)?null:kg,reps,rpe:rr===''?null:rv,rpePlan:x.rpeN||null,t:Date.now(),...(isBilbo(x)?{bilbo:true,rm1:rm1(kg,reps)}:{})}); L.trainedAt=Date.now(); saveLog();
@@ -826,8 +833,8 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
       // ejercicio terminado: pasa solo al siguiente (el descanso sigue corriendo)
       if(arr.length>=x.sets&&d.exercises[S.ex+1]){ S.ex++; S.obsOpen=false }
       S.toast=''; askNotif(); render(); return startTimer(x.rest,nextLabel(),setRef) }
-    case 'nextex': case 'skip': S.ex=Math.min(S.ex+1,d.exercises.length-1); S.toast=''; S.obsOpen=false; return render();
-    case 'prevex': S.ex=Math.max(0,S.ex-1); S.toast=''; S.obsOpen=false; return render();
+    case 'nextex': case 'skip': S.editSet=null; S.ex=Math.min(S.ex+1,d.exercises.length-1); S.toast=''; S.obsOpen=false; return render();
+    case 'prevex': S.editSet=null; S.ex=Math.max(0,S.ex-1); S.toast=''; S.obsOpen=false; return render();
     case 'finish': { const L=ensureLog(); L.done=true; L.finishedAt=Date.now(); L.trainedAt=L.finishedAt; saveLog(); stopTimer(); S.dayRpe=L.rpeDay??null; S.view='rpedia'; S.toast=''; return render() }
     case 'rpedia-save': { const L=ensureLog(); L.rpeDay=S.dayRpe??null; saveLog(); S.view='resumen'; return render() }
     case 'rpedia-skip': S.view='resumen'; return render();
@@ -847,6 +854,10 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
       const id=`${slug(name.split(' ')[0])}-${rnd()}`, r=S.pending; S.adding=false; S.pending=null;
       Promise.resolve(Store.put('athletes',id,{name,coach:false,createdAt:Date.now()})).then(()=>setPlanilla(id,r)).then(()=>{ if(Store.kind==='supa') return Store.pull(true) }).then(()=>flash(`${name} agregado. Copia su link y envíaselo.`)); return }
     case 'ed-save': { const nm=($('#ed-name').value||'').trim(); if(!nm) return flash('Escribe un nombre.',true); const at=JSON.parse(JSON.stringify(ATH())); at.name=nm; Store.put('athletes',S.aid,at); return flash('Nombre guardado.') }
+    case 'editset-cancel': S.editSet=null; return render();
+    case 'editset-ok': { const L=ensureLog(), st=(L.sets[S.ex]||[])[S.editSet]; if(!st) return; const raw=($('#edit-rpe').value||'').replace(',','.').trim(), v=parseFloat(raw);
+      if(raw!==''&&!(v>=1&&v<=10)) return flash('El RPE real va del 1 al 10.',true);
+      st.rpe=raw===''?null:v; saveLog(); const n=S.editSet+1; S.editSet=null; S.toast=raw===''?`RPE de la serie ${n} quitado.`:`RPE de la serie ${n} actualizado a ${fmt(v,1)}.`; S.toastErr=false; return render() }
     case 'del-cancel': S.delAsk=null; return render();
     case 'del-ok': { const to=($('#del-to')||{}).value||''; return delAthlete(a.id,to||null) }
     case 'ed-del': { const at=ATH(); if(!confirm(`¿Eliminar a ${at.name} con todos sus registros y observaciones? Exporta un respaldo antes si quieres guardarlos.`)) return;
@@ -875,9 +886,9 @@ function route(){ const h=decodeURIComponent((location.hash||'').slice(1));
 window.addEventListener('hashchange',route);
 function setMeso(aid,k){ const at=JSON.parse(JSON.stringify(DATA.athletes[aid])); at.meso=k; Store.put('athletes',aid,at); if(aid===S.aid) S.week=null; flash(`${at.name.split(' ')[0]} ahora está en ${mesoLabel(k)}.`) }
 document.addEventListener('input',e=>{const t=e.target;
-  if(t.id==='t-rpe'||t.id==='cur-rpe'){ const raw=t.value.replace(',','.').trim(), v=parseFloat(raw); t.style.borderColor=raw===''||(v>=1&&v<=10)?'':'var(--red)'; return }
+  if(t.id==='t-rpe'||t.id==='cur-rpe'||t.id==='edit-rpe'){ const raw=t.value.replace(',','.').trim(), v=parseFloat(raw); t.style.borderColor=raw===''||(v>=1&&v<=10)?'':'var(--red)'; return }
   if((t.id==='in-reps'||t.id==='in-kg')&&$('#bilbo-1rm')) $('#bilbo-1rm').innerHTML=bilboTxt($('#in-kg').value,$('#in-reps').value) });
-document.addEventListener('keydown',e=>{ if(e.key==='Enter'&&e.target.id==='t-rpe'){ e.preventDefault(); tRpeOk() } });
+document.addEventListener('keydown',e=>{ if(e.key==='Enter'&&e.target.id==='t-rpe'){ e.preventDefault(); tRpeOk() } if(e.key==='Enter'&&e.target.id==='edit-rpe'){ e.preventDefault(); const b=document.querySelector('[data-act="editset-ok"]'); b&&b.click() } });
 document.addEventListener('change',e=>{const t=e.target; if(t.dataset&&t.dataset.meso) setMeso(t.dataset.meso,t.value)});
 // no borrar lo que alguien está escribiendo cuando llegan datos nuevos
 function softRender(){const ae=document.activeElement; if(ae&&/INPUT|TEXTAREA/.test(ae.tagName)&&ae.closest('main')){S.dirty=true;return} render()}
@@ -907,7 +918,7 @@ function vAyuda(){ const D=(t,body,open)=>`<details${open?' open':''}><summary>$
   ${D('3. Durante el entrenamiento: kg y reps',`<ul><li>Cada ejercicio muestra el peso, las series, las reps, el RPE y el descanso planificados.</li><li>Los cuadros de <b>kg</b> y <b>reps</b> son editables: vienen con lo planificado (o con tu serie anterior). Si levantaste otro peso o hiciste otras reps, <b>cámbialos antes de apretar "Serie hecha"</b>. Queda registrado exactamente lo que escribiste.</li><li>En series AMRAP o al fallo, escribe cuántas reps hiciste.</li><li>Arriba ves las series que ya hiciste (S1, S2…) con su peso, reps y RPE.</li></ul>`)}
   ${D('4. Serie hecha y descanso',`<ul><li>Al apretar <b>Serie hecha</b> se guarda la serie y parte el descanso.</li><li>El círculo muestra el tiempo que queda y el <b>mínimo recomendado</b>; cuando lo cumples puedes seguir si te sientes listo.</li><li><b>−15 s</b> y <b>+30 s</b> ajustan el tiempo. <b>Saltar</b> cierra el descanso.</li><li>Al terminar el descanso suena, vibra y te llega una <b>notificación</b>, aunque estés fuera de la app; si tienes reloj conectado, vibra también. Actívalo en <b>Tema → Aviso al terminar el descanso</b>.</li><li>Cuando completas todas las series de un ejercicio, la app pasa sola al siguiente.</li></ul>`)}
   ${D('5. RPE real (qué tan dura fue la serie)',`<ul><li>RPE del 1 al 10: 10 = no podías hacer ni una rep más, 9 = te quedaba 1, 8 = te quedaban 2, y así. Se aceptan decimales (8,5).</li><li>Es <b>opcional</b>, pero le sirve mucho a tu coach para ajustar tus cargas.</li><li>Puedes anotarlo en el cuadro que está bajo "Serie hecha" (rellénalo una vez hecha la serie) o en el descanso.</li><li>En el descanso escribes el número y aprietas <b>✓</b>: queda <b>RPE registrado</b>. Con <b>Modificar</b> lo cambias.</li><li>Al terminar la sesión te pregunta el <b>RPE del día</b> completo.</li></ul>`)}
-  ${D('6. Saltar, volver y series no hechas',`<ul><li><b>Saltar ejercicio</b> sin marcar "Serie hecha" cuenta como que <b>esas series no se hicieron</b>. Tu coach lo ve así en su panel.</li><li>Si hiciste una serie, márcala siempre con "Serie hecha", aunque sea con otro peso o reps.</li><li><b>Anterior</b> te lleva al ejercicio previo para completar series que te faltaron.</li><li>Puedes salir y volver: el día queda <b>En curso</b> y retomas donde quedaste.</li></ul>`)}
+  ${D('6. Saltar, volver y series no hechas',`<ul><li><b>Saltar ejercicio</b> sin marcar "Serie hecha" cuenta como que <b>esas series no se hicieron</b>. Tu coach lo ve así en su panel.</li><li>Si hiciste una serie, márcala siempre con "Serie hecha", aunque sea con otro peso o reps.</li><li><b>Anterior</b> te lleva al ejercicio previo para completar series que te faltaron.</li><li>Para <b>corregir el RPE</b> de una serie ya hecha, toca esa serie (S1, S2…) arriba de la tarjeta, escribe el nuevo valor y aprieta ✓.</li><li>Puedes salir y volver: el día queda <b>En curso</b> y retomas donde quedaste.</li></ul>`)}
   ${D('7. Serie Bilbo y 1RM estimado',`<ul><li>En la serie de <b>Press de banca Bilbo</b>, al escribir las reps ves tu <b>1RM estimado</b>: peso × reps × 0,03 + peso.</li><li>Queda guardado y tu coach ve tu avance sesión a sesión.</li></ul>`)}
   ${D('8. Observaciones para tu coach',`<ul><li>En cada ejercicio puedes tocar <b>Dejar observación</b>: elige una opción (Intensidad perfecta, Podría hacer más, Muy pesado, Molestia / dolor, Duda técnica) y escribe un comentario si quieres.</li><li>Tu coach recibe el aviso y te puede responder. Las respuestas aparecen en <b>Mis notas</b>.</li></ul>`)}
   ${D('9. Terminar la sesión y resumen',`<ul><li>En el último ejercicio aparece <b>Terminar sesión</b>. Luego marcas el RPE del día y ves el <b>resumen</b>: kilos levantados, carga, series efectivas, RPE medio y grupos musculares, comparados con el plan.</li></ul>`)}
