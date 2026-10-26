@@ -254,17 +254,23 @@ const isBilbo=x=>!!x&&/BILBO/.test(normU(x.name))&&!/BILBO\s*\+/.test(normU(x.na
 const rm1=(kg,reps)=>(+kg>0&&+reps>0)?(+kg)*(+reps)*0.03+(+kg):null;  // 1RM = peso × reps × 0,03 + peso
 // fecha del entrenamiento: la última vez que se registró algo en ese día
 const sessDate=L=>{const ts=Object.values(L.sets||{}).flat().map(s=>s&&s.t||0); return L.trainedAt||L.finishedAt||(ts.length?Math.max(...ts):0)||Date.parse(L.date)||0};
-const mesoLabel=k=>(MESOS.find(m=>m[0]===k)||[k,k])[1];
+// nombre de hoja → mesociclo: ignora espacios, mayúsculas y tildes; "Volumen 2" es otro mesociclo que "Volumen"
+function mesoFromSheet(n){ const t=normU(n).replace(/[^A-Z0-9]/g,''); for(const m of MESOS){ if(!m[2].test(t)) continue;
+    const mm=t.match(new RegExp(m[2].source.replace('\\s*','')+'(\\d{1,2})(?!\\d)')); const num=mm?+mm[1]:0; return num>1?m[0]+' '+num:m[0] } return null }
+const mesoBase=k=>MESOS.find(m=>k===m[0]||String(k).startsWith(m[0]+' '));
+const mesoLabel=k=>{ const b=mesoBase(k); return b?b[1]+(k.length>b[0].length?k.slice(b[0].length):''):k };
+const mesoOrder=k=>{ const b=mesoBase(k); return b?MESOS.indexOf(b)*100+(+String(k).slice(b[0].length)||1):9999 };
+const mesoKeys=a=>Object.keys(plansOf(a)).sort((x,y)=>mesoOrder(x)-mesoOrder(y));
 function wbPlans(wb){ const plans={}, skipped=[];
-  for(const n of wb.SheetNames){ const m=MESOS.find(x=>x[2].test(normU(n))); if(!m) continue; const ws=wb.Sheets[n]; if(!ws||!ws['!ref']) continue;
+  for(const n of wb.SheetNames){ const k=mesoFromSheet(n); if(!k) continue; const ws=wb.Sheets[n]; if(!ws||!ws['!ref']) continue;
     const p=parsePlan(XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null}),n,XLSX.utils.decode_range(ws['!ref']).s.r+1);
     const ex=p.weeks.reduce((a,w)=>a+w.days.reduce((b,d)=>b+d.exercises.length,0),0); if(!ex){skipped.push(n);continue}
-    p.weeks=p.weeks.filter(w=>w.days.some(d=>d.exercises.length)); p.meso=m[0]; p.macro=m[1].toUpperCase(); p.nEx=ex;
-    if(!plans[m[0]]||ex>plans[m[0]].nEx) plans[m[0]]=p }
+    p.weeks=p.weeks.filter(w=>w.days.some(d=>d.exercises.length)); p.meso=k; p.macro=mesoLabel(k).toUpperCase(); p.nEx=ex;
+    if(!plans[k]||ex>plans[k].nEx) plans[k]=p }
   return {plans,skipped,sheets:wb.SheetNames} }
 // planes de un alumno: de su planilla en Supabase, o guardados en su ficha (artifact / navegador)
 function plansOf(a){ if(!a) return {}; if(Store.kind==='supa') return (Store.parsed[a.file]||{}).plans||{}; if(a.plans) return a.plans; if(a.plan) return {[a.plan.meso||'HIPERTROFIA']:a.plan}; return {} }
-function mesoOf(a){ const P=plansOf(a); if(a&&a.meso&&P[a.meso]) return a.meso; const m=MESOS.find(x=>P[x[0]]); return m?m[0]:null }
+function mesoOf(a){ const P=plansOf(a); if(a&&a.meso&&P[a.meso]) return a.meso; return mesoKeys(a)[0]||null }
 const planOf=a=>{const k=mesoOf(a); return k?plansOf(a)[k]:null};
 const S={ready:0, isCoach:false, mode:'loading', aid:null, coachAid:null, tab:'entrenar', ctab:'alumnos', view:'dias', week:null, day:null, ex:0, toast:'', toastErr:false, confirm:null, importMsg:null, obsOpen:false, obsTag:null, timer:null, pending:null, adding:false};
 function flash(msg,err){S.toast=msg;S.toastErr=!!err;render()}
@@ -339,7 +345,7 @@ function vSemana(w){ const P=PLAN();
     </tbody></table></div>
     <div class="row small muted" style="margin-top:6px"><span>${d.exercises.length} ejercicios · ${pm.series} series · ${fmt(pm.ton)} kg plan</span><button class="chip" data-day="${d.n}">${done?'Ver':'Entrenar'}</button></div></div>`}).join('')}
   <div class="muted small">Desliza las tablas hacia el lado para ver todas las columnas.</div>`}
-function ensureLog(){const id=logId(S.aid,S.week,S.day); if(DATA.logs[id]&&Object.isFrozen(DATA.logs[id])) DATA.logs[id]=JSON.parse(JSON.stringify(DATA.logs[id])); if(!DATA.logs[id]) DATA.logs[id]={aid:S.aid,meso:mesoOf(ATH()),w:S.week,d:S.day,sets:{},done:false,date:new Date().toISOString().slice(0,10)}; return DATA.logs[id]}
+function ensureLog(){const id=logId(S.aid,S.week,S.day); if(DATA.logs[id]&&Object.isFrozen(DATA.logs[id])) DATA.logs[id]=JSON.parse(JSON.stringify(DATA.logs[id])); if(!DATA.logs[id]) DATA.logs[id]={aid:S.aid,meso:mesoOf(ATH()),w:S.week,d:S.day,sets:{},done:false,startedAt:Date.now(),date:new Date().toISOString().slice(0,10)}; return DATA.logs[id]}
 function saveLog(){const id=logId(S.aid,S.week,S.day); const L=JSON.parse(JSON.stringify(DATA.logs[id])); L.updatedAt=Date.now(); Store.put('logs',id,L)}
 
 function exNotes(w,d,i){return notesOf(S.aid,mesoOf(ATH())).filter(n=>n.w===w&&n.d===d&&n.ex===i)}
@@ -354,7 +360,9 @@ function noteHtml(n,coach){const cls=/Molestia|pesado/.test(n.tag||'')?'bad':/m�
 function vSesion(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day), L=ensureLog(); const x=d.exercises[S.ex]; const done=(L.sets[S.ex]||[]);
   const allDone=done.length>=x.sets, next=d.exercises[S.ex+1], last=done[done.length-1];
   const kgTxt=x.kg!=null?`<span class="kg num">${fmt(x.kg,1)}</span><span class="u">kg</span>`:`<span class="kg" style="font-size:40px">${esc(x.load?title(x.load):'A criterio')}</span>`;
-  const def={kg:last?last.kg??'':(x.kg??''), reps:last?last.reps:(/AMRAP|>=/i.test(x.reps)?'':(parseInt(x.reps)||'')), rpe:last?last.rpe??'':(x.rpeN||'')};
+  const def={kg:last?last.kg??'':(x.kg??''), reps:last?last.reps:(/AMRAP|>=/i.test(x.reps)?'':(parseInt(x.reps)||'')), rpe:''};
+  const dk=draftKey(done.length), dr=S.draft&&S.draft.k===dk?S.draft:null; if(dr){ if(dr.kg!=null) def.kg=dr.kg; if(dr.reps!=null) def.reps=dr.reps; if(dr.rpe!=null) def.rpe=dr.rpe }
+  const lastOk=last&&hasR(last.rpe)&&S.editSet==null;
   const ns=exNotes(S.week,S.day,S.ex);
   return `<div class="row"><button class="btn ghost sm inline" data-act="back">← Días</button><span class="eyebrow">${dayName(d)} · ${title(d.focus)}</span></div>
   <div class="dots" aria-label="Ejercicio ${S.ex+1} de ${d.exercises.length}">${d.exercises.map((e,i)=>`<i class="${(L.sets[i]||[]).length>=e.sets?'d':i===S.ex?'c':''}"></i>`).join('')}</div>
@@ -369,12 +377,14 @@ function vSesion(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day), L=ensur
   ${S.editSet!=null&&done[S.editSet]?`<div class="rpebox plain"><div class="q">Modificar RPE · serie ${S.editSet+1} <span class="muted small">(${done[S.editSet].kg!=null&&done[S.editSet].kg!==''?fmt(+done[S.editSet].kg,1)+' kg × ':''}${done[S.editSet].reps} reps)</span></div>
   <div class="rpein"><input id="edit-rpe" type="text" inputmode="decimal" autocomplete="off" placeholder="—" value="${hasR(done[S.editSet].rpe)?esc(done[S.editSet].rpe):''}"><button class="okbtn" data-act="editset-ok" aria-label="Guardar RPE">✓</button></div>
   <div class="row" style="margin-top:8px"><span class="small muted">Deja vacío y aprieta ✓ para quitar el RPE.</span><button class="chip" data-act="editset-cancel">Cancelar</button></div></div>`
-  :`<div class="small muted" style="margin-top:-4px">Toca una serie hecha para modificar su RPE.</div>`}`:''}
+  :`${lastOk?`<div class="rpebox ok"><div class="row"><div><div class="q" style="margin:0">RPE registrado ✓</div><div class="small muted">Serie ${done.length} · ${title(x.name)}</div></div><b class="num" style="font-size:28px">${fmt(+last.rpe,1)}</b></div><button class="btn ghost sm" style="margin-top:8px" data-editset="${done.length-1}">Modificar</button></div>`:''}
+  <div class="small muted" style="margin-top:-4px">Toca una serie hecha para modificar su RPE.</div>`}`:''}
   ${!allDone?`<div class="card"><div class="eyebrow" style="margin-bottom:8px">Serie ${done.length+1} de ${x.sets}${/AMRAP|FALLO|>=/i.test(x.reps+x.name)?' · anota cuántas hiciste':''}</div>
-    <div class="inputs" style="grid-template-columns:1fr 1fr"><label class="f">kg<input id="in-kg" inputmode="decimal" value="${esc(def.kg)}"></label><label class="f">reps<input id="in-reps" inputmode="numeric" value="${esc(def.reps)}" placeholder="?"></label></div>
+    <div class="inputs" style="grid-template-columns:1fr 1fr"><label class="f">kg<input id="in-kg" inputmode="decimal" value="${esc(def.kg)}" data-draft="kg"></label><label class="f">reps<input id="in-reps" inputmode="numeric" value="${esc(def.reps)}" placeholder="?" data-draft="reps"></label></div>
     ${isBilbo(x)?`<div class="bilbo" id="bilbo-1rm">${bilboTxt(def.kg,def.reps)}</div>`:''}
     <button class="btn" style="margin-top:10px" data-act="set">Serie hecha · descanso ${fmtRest(x.rest.max)}</button>
-    <div class="rpebox plain" style="margin-top:12px"><div class="q">¿Qué tan dura fue la serie del 1 al 10? (RPE REAL)<div class="muted small" style="font-weight:400">Serie ${done.length+1} · Rellenar una vez realizada la serie (opcional)</div></div><input id="cur-rpe" type="text" inputmode="decimal" autocomplete="off" placeholder="—"></div></div>`:
+    ${dr&&dr.rpeOk&&hasR(dr.rpe)?`<div class="rpebox ok" style="margin-top:12px"><div class="row"><div><div class="q" style="margin:0">RPE registrado ✓</div><div class="small muted">Serie ${done.length+1} · se guarda al apretar "Serie hecha"</div></div><b class="num" style="font-size:28px">${fmt(+String(dr.rpe).replace(',','.'),1)}</b></div><button class="btn ghost sm" style="margin-top:8px" data-act="currpe-edit">Modificar</button></div>`
+    :`<div class="rpebox plain" style="margin-top:12px"><div class="q">¿Qué tan dura fue la serie del 1 al 10? (RPE REAL)<div class="muted small" style="font-weight:400">Serie ${done.length+1} · Rellenar una vez realizada la serie (opcional)</div></div><div class="rpein"><input id="cur-rpe" type="text" inputmode="decimal" autocomplete="off" placeholder="—" value="${esc(def.rpe)}" data-draft="rpe"><button class="okbtn" data-act="currpe-ok" aria-label="Listo">✓</button></div></div>`}</div>`:
     `<div class="card"><div class="row"><b>Ejercicio completo</b><span class="pill ok">${done.length}/${x.sets} series</span></div>
      ${next?`<div class="small muted" style="margin-top:6px">Siguiente: <b style="color:var(--fg)">${title(next.name)}</b> · ${next.kg!=null?fmt(next.kg,1)+' kg':esc(next.load||'')} · ${next.sets}×${esc(next.reps)}</div>`:''}
      <button class="btn" style="margin-top:10px" data-act="${next?'nextex':'finish'}">${next?'Siguiente ejercicio':'Terminar sesión'}</button></div>`}
@@ -388,6 +398,51 @@ function vSesion(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day), L=ensur
 
 function bilboTxt(kg,reps){ const v=rm1(String(kg).replace(',','.'),reps);
   return v?`<div class="small muted">1RM estimado (peso × reps × 0,03 + peso)</div><b class="num">${fmt(v,1)} kg</b>`:`<div class="small muted">Serie Bilbo: escribe las reps que hiciste y verás tu 1RM estimado.</div>`}
+const draftKey=n=>`${S.aid}|${mesoOf(ATH())}|${S.week}|${S.day}|${S.ex}|${n}`;
+function curDraft(){ const L=ensureLog(), k=draftKey((L.sets[S.ex]||[]).length); if(!S.draft||S.draft.k!==k) S.draft={k}; return S.draft }
+// ---------- foto con el resumen del entrenamiento ----------
+function sessionCard(){ const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day), L=dayLog(w.n,d.n), rm=realMetrics(L), pm=planMetrics(d), a=ATH(); const t0=sessDate(L);
+  const sets=Object.values(L.sets||{}).flat(), reps=sets.reduce((p,s)=>p+(+s.reps||0),0), ts=sets.map(s=>s.t||0).filter(Boolean);
+  const start=L.startedAt||(ts.length?Math.min(...ts):0), end=L.finishedAt||(ts.length?Math.max(...ts):0), min=start&&end>start?Math.round((end-start)/60000):0;
+  // historial previo del alumno por ejercicio (mismo nombre), para los PR
+  const prev={}; Object.entries(DATA.logs).forEach(([id,o])=>{ if(o.aid!==S.aid||o===L||sessDate(o)>=t0) return; const P=plansOf(a)[o.meso], ww=P&&P.weeks.find(x=>x.n===o.w), dd=ww&&ww.days.find(x=>x.n===o.d); if(!dd) return;
+    Object.entries(o.sets||{}).forEach(([i,arr])=>{ const x=dd.exercises[i]; if(!x) return; const k=normU(x.name), p=prev[k]=prev[k]||{kg:0,ton:0}; (arr||[]).forEach(s=>{ p.kg=Math.max(p.kg,+s.kg||0); p.ton=Math.max(p.ton,(+s.kg||0)*(+s.reps||0)) }) }) });
+  const ex=Object.entries(L.sets||{}).map(([i,arr])=>{ const x=d.exercises[i], ok=(arr||[]).filter(s=>+s.kg>0&&+s.reps>0); if(!x||!ok.length) return null;
+    const best=ok.reduce((b,s)=>(+s.kg>+b.kg||(+s.kg===+b.kg&&+s.reps>+b.reps))?s:b), bt=ok.reduce((b,s)=>(+s.kg*+s.reps>+b.kg*+b.reps)?s:b), p=prev[normU(x.name)];
+    return {name:title(x.name),lift:LIFT(x.name),best,bt,pkg:p&&p.kg&&+best.kg>p.kg?+best.kg-p.kg:0,pton:p&&p.ton&&bt.kg*bt.reps>p.ton?bt.kg*bt.reps-p.ton:0} }).filter(Boolean);
+  const prK=ex.filter(e=>e.pkg).sort((x,y)=>y.pkg-x.pkg)[0], prT=ex.filter(e=>e.pton).sort((x,y)=>y.pton-x.pton)[0];
+  const top=ex.slice().sort((x,y)=>(x.lift==='Accesorio')-(y.lift==='Accesorio')||(+y.best.kg*+y.best.reps)-(+x.best.kg*+x.best.reps)).slice(0,4);
+  return {name:a.name,date:fdNum(t0||Date.now()),meso:mesoLabel(L.meso||mesoOf(a)),w:w.n,d:d.n,kg:rm.ton,series:rm.series,seriesPlan:pm.series,reps,min,prK,prT,top} }
+const fmtDur=m=>m>=60?`${Math.floor(m/60)} H ${m%60} MIN`:`${m} MIN`;
+async function makePhoto(file){ if(!file) return; flash('Preparando tu foto…');
+  try{
+    const img=await new Promise((ok,ko)=>{ const i=new Image(); i.onload=()=>ok(i); i.onerror=ko; i.src=URL.createObjectURL(file) });
+    try{ await Promise.all(['800 100px "Barlow Condensed"','700 40px "Barlow Condensed"','500 30px "IBM Plex Sans"'].map(f=>document.fonts.load(f))) }catch(e){}
+    const c=sessionCard(), W=1080, H=1920, cv=document.createElement('canvas'); cv.width=W; cv.height=H; const g=cv.getContext('2d');
+    const sc=Math.max(W/img.naturalWidth,H/img.naturalHeight), iw=img.naturalWidth*sc, ih=img.naturalHeight*sc; g.drawImage(img,(W-iw)/2,(H-ih)/2,iw,ih);
+    const acc=getComputedStyle(document.documentElement).getPropertyValue('--gold').trim()||'#d4ad5e';
+    g.fillStyle='rgba(0,0,0,.30)'; g.fillRect(0,0,W,H); const gr=g.createLinearGradient(0,560,0,1720); gr.addColorStop(0,'rgba(0,0,0,0)'); gr.addColorStop(.18,'rgba(0,0,0,.55)'); gr.addColorStop(.82,'rgba(0,0,0,.6)'); gr.addColorStop(1,'rgba(0,0,0,0)'); g.fillStyle=gr; g.fillRect(0,560,W,1160);
+    const D='"Barlow Condensed","Arial Narrow",sans-serif', B='"IBM Plex Sans",system-ui,sans-serif';
+    const txt=(t,y,font,col,ls,align='center',x=W/2)=>{ g.font=font; g.fillStyle=col; g.textAlign=align; g.textBaseline='alphabetic'; try{g.letterSpacing=(ls||0)+'px'}catch(e){} g.shadowColor='rgba(0,0,0,.6)'; g.shadowBlur=12; g.fillText(t,x,y); g.shadowBlur=0; try{g.letterSpacing='0px'}catch(e){} };
+    const fit=(t,max,font)=>{ g.font=font; if(g.measureText(t).width<=max) return t; while(t.length>3&&g.measureText(t+'…').width>max) t=t.slice(0,-1); return t+'…' };
+    let y=720;
+    txt('TEAM POWEROSSO',y,`800 74px ${D}`,'#fff',16); y+=62;
+    txt(fit(`${String(c.name).toUpperCase()} · ${c.date}`,W-120,`600 38px ${D}`),y,`600 38px ${D}`,'rgba(255,255,255,.85)',6); y+=70;
+    txt(fit(`${String(c.meso).toUpperCase()} · SEMANA ${c.w} · DÍA ${c.d}`,W-140,`700 50px ${D}`),y,`700 50px ${D}`,'#fff',8); y+=245;
+    txt(fmt(c.kg),y,`800 230px ${D}`,acc,2); y+=72;
+    txt('KG MOVIDOS',y,`700 54px ${D}`,acc,18); y+=86;
+    txt([`${c.series}/${c.seriesPlan} SERIES`,`${c.reps} REPS`,c.min?fmtDur(c.min):''].filter(Boolean).join(' · '),y,`700 50px ${D}`,'#fff',4); y+=80;
+    const pill=(lab,desc)=>{ g.font=`800 32px ${D}`; try{g.letterSpacing='4px'}catch(e){} const pw=g.measureText(lab).width+36; try{g.letterSpacing='0px'}catch(e){} const x0=70;
+      g.fillStyle=acc; g.beginPath(); (g.roundRect?g.roundRect(x0,y-36,pw,48,8):g.rect(x0,y-36,pw,48)); g.fill(); txt(lab,y,`800 32px ${D}`,'#111',4,'left',x0+18);
+      txt(fit(desc,W-x0-pw-90,`500 30px ${B}`),y-2,`500 30px ${B}`,'#fff',0,'left',x0+pw+20); y+=66 };
+    if(c.prK) pill('PR EN CARGA',`${c.prK.name} · ${fmt(+c.prK.best.kg,1)} kg × ${c.prK.best.reps} · +${fmt(c.prK.pkg,1)} kg`);
+    if(c.prT) pill('PR EN TONELAJE',`${c.prT.name} · ${fmt(+c.prT.bt.kg,1)} × ${c.prT.bt.reps} = ${fmt(c.prT.bt.kg*c.prT.bt.reps)} kg · +${fmt(c.prT.pton)} kg`);
+    if(c.top.length){ y+=16; txt('MEJORES SERIES POR EJERCICIO',y,`700 36px ${D}`,'rgba(255,255,255,.75)',10); y+=70;
+      c.top.forEach(e=>{ txt(fit(e.name,640,`500 40px ${B}`),y,`500 40px ${B}`,'#fff',0,'left',150); txt(`${fmt(+e.best.kg,1)} kg × ${e.best.reps}`,y,`700 46px ${D}`,'#fff',1,'right',W-150); y+=68 }) }
+    const lg=await new Promise(ok=>{ const i=new Image(); i.onload=()=>ok(i); i.onerror=()=>ok(null); i.src=LOGO }); if(lg){ const lw=170, lh=lw*lg.naturalHeight/lg.naturalWidth; g.drawImage(lg,(W-lw)/2,Math.min(H-lh-70,y+20),lw,lh) }
+    const blob=await new Promise(ok=>cv.toBlob(ok,'image/png')); if(S.photoUrl) URL.revokeObjectURL(S.photoUrl);
+    S.photoBlob=blob; S.photoUrl=URL.createObjectURL(blob); S.photoName=`powerosso-S${c.w}-D${c.d}-${c.date}.png`; S.toast=''; render();
+  }catch(e){ console.warn(e); flash('No se pudo preparar la foto. Prueba con otra.',true) } }
 function vRpeDia(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day);
   return `<div class="eyebrow">Semana ${w.n} · ${dayName(d)}</div><h2 class="h2">¡Sesión terminada!</h2>
   <div class="card"><div style="font-weight:600">¿Qué tan duro fue el entrenamiento de hoy, completo?</div>
@@ -397,6 +452,11 @@ function vRpeDia(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day);
 function vResumen(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day), L=dayLog(w.n,d.n), pm=planMetrics(d), rm=realMetrics(L);
   return `<div class="eyebrow">Semana ${w.n} · ${dayName(d)}</div><h2 class="h2">Resumen · ${title(d.focus)}</h2>
   ${L&&L.rpeDay?`<div class="card row"><span>RPE real del día</span><b class="num" style="font-size:22px">${L.rpeDay}/10</b></div>`:''}
+  ${L&&rm.series?`<div class="card"><div class="eyebrow" style="margin-bottom:6px">Foto de tu entrenamiento</div><div class="small muted" style="margin-bottom:10px">Elige una foto y la app le pone tus datos de hoy: kilos movidos, series, reps, duración, PRs y mejores series. Luego la guardas en tu teléfono o la compartes.</div>
+    ${S.photoUrl?`<img src="${S.photoUrl}" alt="Tu foto con el resumen del entrenamiento" style="width:100%;border-radius:12px;border:1px solid var(--line)">
+    <div class="btns" style="margin-top:10px"><button class="btn goldb sm" data-act="photo-save">Guardar en el teléfono</button>${navigator.canShare?`<button class="btn ghost sm" data-act="photo-share">Compartir</button>`:''}</div>
+    <label class="btn ghost sm" style="margin-top:8px;position:relative;text-align:center">Usar otra foto<input type="file" id="photo-in" accept="image/*" style="position:absolute;inset:0;opacity:0"></label>`
+    :`<label class="btn goldb" style="position:relative;text-align:center">Elegir foto<input type="file" id="photo-in" accept="image/*" style="position:absolute;inset:0;opacity:0"></label>`}</div>`:''}
   ${kpis(rm,pm,true)}<div class="card"><div class="eyebrow" style="margin-bottom:8px">Grupos musculares de la sesión (kilos levantados)</div>${pieMuscles([[w,d]],true)}</div>${dayTable(w,d,false)}
   <button class="btn" data-act="todash">Ver dashboard de la semana</button><button class="btn ghost" data-act="back">Volver a los días</button>`}
 
@@ -466,7 +526,7 @@ function vAlumnos(){const list=Object.entries(DATA.athletes).map(([id,a])=>({id,
   return `${toastHtml()}<div class="row"><h2 class="h2">Mis alumnos</h2><span class="pill gold">${list.filter(a=>!a.coach).length} alumnos</span></div>
   ${list.some(a=>!a.coach)?`<button class="btn ghost sm" data-act="copy-all">Copiar los links de todos</button>`:''}
   ${list.length?'':`<div class="card muted">Aún no hay rutinas cargadas. Agrega tu primer alumno con su Excel.</div>`}
-  ${list.map(a=>{const P=planOf(a), un=unread(a.id), mk=mesoOf(a), avail=MESOS.filter(m=>plansOf(a)[m[0]]);
+  ${list.map(a=>{const P=planOf(a), un=unread(a.id), mk=mesoOf(a), avail=mesoKeys(a).map(k=>[k,mesoLabel(k)]);
     const cw=P&&currentWeek(a.id), w=P&&P.weeks.find(x=>x.n===cw), done=w?weekDone(w,a.id):0;
     return `<div class="card"><div class="ath"><div class="av">${esc((a.name||'?')[0])}</div><div style="min-width:0">
       <div class="row"><b>${esc(a.name)}</b>${a.coach?'<span class="pill gold">Tú</span>':un?`<span class="pill red">${un} sin revisar</span>`:'<span class="pill">Al día</span>'}</div>
@@ -556,9 +616,13 @@ function vRpeCoach(){ const f=S.rfilter||'';
       const rpl=+(((o.arr[0]||{}).rpePlan)||(x&&x.rpeN))||null, rre=avgOf(o.arr.filter(s=>hasR(s.rpe)).map(s=>+s.rpe));
       const bil=isBilbo(x)?o.arr.filter(s=>rm1(s.kg,s.reps)).map(s=>`<div class="small gold">Bilbo: ${fmt(+s.kg,1)} kg × ${s.reps} reps → 1RM est. <b>${fmt(rm1(s.kg,s.reps),1)} kg</b></div>`).join(''):'';
       const sp=x?x.sets:null;
-      return `<tr><td>${x?title(x.name):'Ejercicio '+(o.i+1)}${x?`<div class="small muted">plan ${x.sets}×${esc(x.reps||'—')}</div>`:''}${n?`<div class="small muted">${o.arr.map((s,j)=>`S${j+1} ${hasR(s.kg)&&+s.kg?fmt(+s.kg,1)+'×':''}${s.reps??'—'}${hasR(s.rpe)?' @'+fmt(+s.rpe,1):''}`).join(' · ')}</div>`:''}${bil}</td>
+      return `<tr><td>${x?title(x.name):'Ejercicio '+(o.i+1)}${x?`<div class="small muted">plan ${x.sets}×${esc(x.reps||'—')}</div>`:''}${n?`<div class="setlog" style="margin-top:4px">${o.arr.map((s,j)=>`<button class="setchip small" data-cset="${L.id}|${o.i}|${j}" aria-pressed="${S.cset===L.id+'|'+o.i+'|'+j}">S${j+1} ${hasR(s.kg)&&+s.kg?fmt(+s.kg,1)+'×':''}${s.reps??'—'} ${hasR(s.rpe)?'@'+fmt(+s.rpe,1)+(s.rpeBy==='coach'?' (coach)':''):'· poner RPE'}</button>`).join('')}</div>`:''}${bil}</td>
       <td class="num"><b class="${sp&&n<sp?'under':''}">${n}</b><span class="pl">/${sp??'—'}</span></td><td class="num">${n?pr(kpl,kre,1):`<span class="pl">${kpl!=null?fmt(kpl,1):'—'}</span>`}</td><td class="num">${pr(rpl,rre,1)}</td></tr>`}).join('')}
     </tbody></table></div>
+    ${(()=>{ if(!S.cset||!S.cset.startsWith(L.id+'|')) return ''; const [,ci,cj]=S.cset.split('|'), st=((L.sets||{})[ci]||[])[+cj], x=d&&d.exercises[+ci]; if(!st) return '';
+      return `<div class="rpebox plain" style="margin-top:10px"><div class="q">RPE real · ${x?title(x.name):'Ejercicio'} · serie ${+cj+1} <span class="muted small">(${hasR(st.kg)&&+st.kg?fmt(+st.kg,1)+' kg × ':''}${st.reps} reps)</span></div>
+      <div class="rpein"><input id="coach-rpe" type="text" inputmode="decimal" autocomplete="off" placeholder="—" value="${hasR(st.rpe)?esc(st.rpe):''}"><button class="okbtn" data-act="cset-ok" aria-label="Guardar RPE">✓</button></div>
+      <div class="row" style="margin-top:8px"><span class="small muted">Queda marcado como puesto por el coach. Vacío + ✓ lo quita.</span><button class="chip" data-act="cset-cancel">Cancelar</button></div></div>` })()}
     <div style="margin-top:8px;text-align:right"><button class="chip" data-dellog="${L.id}">Borrar registro de este día</button></div></div>` };
   return `<h2 class="h2">Plan vs real</h2><div class="muted small">Cada día de entrenamiento: lo planificado frente a lo que el alumno hizo en series, kg y RPE. Debajo de cada valor va la diferencia (real − plan). En celeste, menos de lo planificado; en color, 1 punto de RPE o más sobre el plan.</div>
   <div class="chips"><button class="chip" data-rf="" aria-pressed="${!f}">Todos</button>${ids.map(id=>`<button class="chip" data-rf="${id}" aria-pressed="${f===id}">${esc(DATA.athletes[id]?.name||id)}</button>`).join('')}</div>
@@ -682,7 +746,7 @@ function vCoachAthlete(){const a=ATH(), P=PLAN(); let sub=S.csub||'rutina'; if(!
   if(sub==='notas'){const ns=notesOf(S.aid); body=ns.length?`<div class="card" style="display:flex;flex-direction:column;gap:12px">${ns.map(n=>noteHtml(n,true)).join('')}</div>`:`<div class="card muted">${esc(a.name)} todavía no deja observaciones.</div>`}
   if(sub==='cargar') body=P?vCargar():`<div class="card muted">Sube su planilla de Excel. La app toma las hojas de mesociclo (Hipertrofia, Fuerza base, Volumen, Peaking, Tapering).</div><label class="file card"><input type="file" id="xlsx" accept=".xlsx,.xls,.xlsm"><b>Elegir planilla</b></label>`;
   if(!w&&(sub==='rutina'||sub==='dash')) body='';
-  const avail=MESOS.filter(m=>plansOf(a)[m[0]]), mk=mesoOf(a);
+  const avail=mesoKeys(a).map(k=>[k,mesoLabel(k)]), mk=mesoOf(a);
   return `<div class="row"><button class="btn ghost sm inline" data-act="coach-back">← Alumnos</button>${a.coach?'':`<button class="chip" data-copy="${S.aid}">Copiar link</button>`}</div>
   ${avail.length>1?`<div class="chips">${avail.map(m=>`<button class="chip" data-setmeso="${m[0]}" aria-pressed="${m[0]===mk}">${m[1]}</button>`).join('')}</div>`:''}
   ${toastHtml()}<div class="chips">${tabs.map(([k,l])=>`<button class="chip" data-csub="${k}" aria-pressed="${sub===k}">${l}</button>`).join('')}</div>${body}`}
@@ -695,7 +759,7 @@ function vCargar(){const P=PLAN(), w=P.weeks, nEx=w.reduce((a,x)=>a+x.days.reduc
   <div class="card"><div class="eyebrow">Hoja “${esc(P.sheet)}”</div><div style="font-weight:600;margin-top:2px">${esc(P.title)}</div>
   <div class="kpis" style="margin-top:10px"><div class="kpi"><div class="l">Semanas</div><div class="v">${w.length}</div><div class="p">S${w[0].n}–S${w[w.length-1].n}${w.some(x=>x.deload)?' · con descarga':''}</div></div><div class="kpi"><div class="l">Ejercicios</div><div class="v">${nEx}</div><div class="p">${w.reduce((a,x)=>a+x.days.length,0)} sesiones</div></div></div>
   ${params.length?`<div class="tbl" style="margin-top:10px"><table><tbody>${params.map(([k,v])=>`<tr><td>${esc(k)}</td><td class="num">${fmt(v,1)}</td></tr>`).join('')}</tbody></table></div>`:''}</div>
-  <div class="small muted">Mesociclos en la planilla: ${MESOS.filter(m=>plansOf(ATH())[m[0]]).map(m=>m[1]).join(', ')}.</div>
+  <div class="small muted">Mesociclos en la planilla: ${mesoKeys(ATH()).map(mesoLabel).join(', ')}.</div>
   <label class="file card"><input type="file" id="xlsx" accept=".xlsx,.xls,.xlsm"><b>Reemplazar con otro Excel</b><span class="muted small">Los registros que ya hizo se mantienen.${Store.kind==='supa'?' Si usas el actualizador (.bat), basta con guardar el Excel en tu carpeta Alumnos.':''}</span></label>
   ${chk.length?`<div class="card"><div class="row" style="margin-bottom:6px"><span class="eyebrow">Revisa en la planilla</span><span class="pill red">${chk.length}</span></div>${W(chk)}</div>`:''}
   ${miss.length?`<div class="card"><div class="row" style="margin-bottom:6px"><span class="eyebrow">Datos que faltan</span><span class="pill warn">${miss.length}</span></div>${W(miss)}<div class="muted small" style="margin-top:6px">El alumno los ve “a criterio”, 1 serie, con 2 min de descanso por defecto.</div></div>`:''}`}
@@ -761,6 +825,7 @@ function render(){
     const un=Object.values(DATA.notes).filter(n=>!n.reviewed).length;
     nav.hidden=false; $('#tabs').innerHTML=[['alumnos','Alumnos'],['notas','Observaciones'],['rpe','Plan vs real'],['cmp','Estadísticas']].map(([k,l])=>`<button data-ctab="${k}" aria-current="${S.ctab===k||(k==='alumnos'&&S.ctab==='alumno')}">${l}${k==='notas'&&un?`<span class="badge">${un}</span>`:''}</button>`).join('');
   }
+  const ph=$('#photo-in'); if(ph) ph.addEventListener('change',e=>makePhoto(e.target.files[0]));
   const f=$('#xlsx'); if(f) f.addEventListener('change',e=>readXlsx(e.target.files[0],r=>setPlanilla(S.aid,r)));
   const nf=$('#new-xlsx'); if(nf) nf.addEventListener('change',e=>{const file=e.target.files[0]; if(!file) return; readXlsx(file,r=>{S.pending=r; $('#new-file-lbl').textContent=`Lista: ${Object.keys(r.plans).map(mesoLabel).join(', ')}.`})});
   const im=$('#imp'); if(im) im.addEventListener('change',e=>importBackup(e.target.files[0]));
@@ -826,6 +891,7 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
   if(a.csub){S.csub=a.csub; S.importMsg=null; return render()}
   if(a.wview!==undefined){ S.wview=a.wview==='1'; try{localStorage.setItem('powerosso.wview',S.wview?'1':'')}catch(e){} return render() }
   if(a.editset!==undefined){ S.editSet=S.editSet===+a.editset?null:+a.editset; render(); const i=$('#edit-rpe'); i&&i.focus(); return }
+  if(a.cset){ S.cset=S.cset===a.cset?null:a.cset; render(); const i=$('#coach-rpe'); i&&i.focus(); return }
   if(a.delnote){ const n=DATA.notes[a.delnote]; if(!n||!confirm(`¿Borrar esta observación de ${DATA.athletes[n.aid]?.name||'el alumno'}${n.tag?` (“${n.tag}”)`:''}? No se puede deshacer.`)) return;
     Promise.resolve(Store.del('notes',a.delnote)).then(()=>flash('Observación borrada.')); return render() }
   if(a.dellog){ const L=DATA.logs[a.dellog]; if(!L) return; const nm=DATA.athletes[L.aid]?.name||'el alumno';
@@ -836,7 +902,7 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
   if(a.nf!==undefined){S.nfilter=a.nf; return render()}
   if(a.review){const n=DATA.notes[a.review]; Store.put('notes',a.review,{...n,reviewed:!n.reviewed}); return render()}
   if(a.reply){S.replyTo=a.reply; render(); const t=$('#reply-txt'); t&&t.focus(); return}
-  if(a.day){ S.editSet=null; const L0=dayLog(S.week,+a.day);
+  if(a.day){ S.editSet=null; S.photoUrl=null; S.photoBlob=null; const L0=dayLog(S.week,+a.day);
     if(L0&&L0.done){ S.day=+a.day; S.toast='';
       if(!confirm('Este día ya está registrado. ¿Quieres repetirlo? Se reemplaza lo anotado antes y queda con la fecha de hoy.')){ S.view='resumen'; return render() }
       const L=ensureLog(); L.sets={}; L.done=false; L.rpeDay=null; L.finishedAt=null; L.trainedAt=Date.now(); saveLog() }
@@ -850,9 +916,9 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
     case 'set': { const x=d.exercises[S.ex], L=ensureLog(); const num=v=>parseFloat(String(v).replace(',','.'));
       const kg=num($('#in-kg').value), reps=parseInt($('#in-reps').value);
       if(isNaN(reps)) return flash('Anota cuántas repeticiones hiciste.',true); S.editSet=null;
-      const rr=(($('#cur-rpe')||{}).value||'').replace(',','.').trim(), rv=parseFloat(rr);
+      const dr0=curDraft(), rr=(($('#cur-rpe')||{}).value??dr0.rpe??'').toString().replace(',','.').trim(), rv=parseFloat(rr);
       if(rr!==''&&!(rv>=1&&rv<=10)) return flash('El RPE real va del 1 al 10.',true);
-      const arr=(L.sets[S.ex]=L.sets[S.ex]||[]); arr.push({kg:isNaN(kg)?null:kg,reps,rpe:rr===''?null:rv,rpePlan:x.rpeN||null,t:Date.now(),...(isBilbo(x)?{bilbo:true,rm1:rm1(kg,reps)}:{})}); L.trainedAt=Date.now(); saveLog();
+      const arr=(L.sets[S.ex]=L.sets[S.ex]||[]); S.draft=null; arr.push({kg:isNaN(kg)?null:kg,reps,rpe:rr===''?null:rv,rpePlan:x.rpeN||null,t:Date.now(),...(isBilbo(x)?{bilbo:true,rm1:rm1(kg,reps)}:{})}); L.trainedAt=Date.now(); saveLog();
       const setRef={ex:S.ex,i:arr.length-1,name:x.name,n:arr.length,plan:x.rpeN};
       // ejercicio terminado: pasa solo al siguiente (el descanso sigue corriendo)
       if(arr.length>=x.sets&&d.exercises[S.ex+1]){ S.ex++; S.obsOpen=false }
@@ -882,6 +948,16 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
     case 'editset-ok': { const L=ensureLog(), st=(L.sets[S.ex]||[])[S.editSet]; if(!st) return; const raw=($('#edit-rpe').value||'').replace(',','.').trim(), v=parseFloat(raw);
       if(raw!==''&&!(v>=1&&v<=10)) return flash('El RPE real va del 1 al 10.',true);
       st.rpe=raw===''?null:v; saveLog(); const n=S.editSet+1; S.editSet=null; S.toast=raw===''?`RPE de la serie ${n} quitado.`:`RPE de la serie ${n} actualizado a ${fmt(v,1)}.`; S.toastErr=false; return render() }
+    case 'cset-cancel': S.cset=null; return render();
+    case 'cset-ok': { if(!S.cset) return; const [lid,ci,cj]=S.cset.split('|'); if(!DATA.logs[lid]) return; const L=JSON.parse(JSON.stringify(DATA.logs[lid])), st=((L.sets||{})[ci]||[])[+cj]; if(!st) return;
+      const raw=(($('#coach-rpe')||{}).value||'').replace(',','.').trim(), v=parseFloat(raw); if(raw!==''&&!(v>=1&&v<=10)) return flash('El RPE real va del 1 al 10.',true);
+      if(raw===''){ st.rpe=null; delete st.rpeBy } else { st.rpe=v; st.rpeBy='coach' } L.updatedAt=Date.now(); S.cset=null; Store.put('logs',lid,L); return flash(raw===''?'RPE quitado.':`RPE ${fmt(v,1)} guardado en la serie ${+cj+1}.`) }
+    case 'photo-save': { if(!S.photoBlob) return; const u=URL.createObjectURL(S.photoBlob), l=document.createElement('a'); l.href=u; l.download=S.photoName; document.body.appendChild(l); l.click(); setTimeout(()=>{URL.revokeObjectURL(u);l.remove()},1500); return flash('Foto guardada en tu teléfono (carpeta Descargas).') }
+    case 'photo-share': { if(!S.photoBlob) return; const file=new File([S.photoBlob],S.photoName,{type:'image/png'}); if(navigator.canShare&&navigator.canShare({files:[file]})) navigator.share({files:[file],title:'Mi entrenamiento'}).catch(()=>{}); else flash('Tu teléfono no permite compartir desde aquí. Usa "Guardar en el teléfono".',true); return }
+    case 'currpe-ok': { const dr=curDraft(), raw=(($('#cur-rpe')||{}).value||'').replace(',','.').trim(), v=parseFloat(raw);
+      if(raw===''||!(v>=1&&v<=10)){ const i=$('#cur-rpe'); if(i){ i.style.borderColor='var(--red)'; i.focus() } return flash('Escribe un RPE del 1 al 10.',true) }
+      dr.rpe=raw; dr.rpeOk=true; S.toast=''; return render() }
+    case 'currpe-edit': { const dr=curDraft(); dr.rpeOk=false; render(); const i=$('#cur-rpe'); i&&i.focus(); return }
     case 'del-cancel': S.delAsk=null; return render();
     case 'del-ok': { const to=($('#del-to')||{}).value||''; return delAthlete(a.id,to||null) }
     case 'ed-del': { const at=ATH(); if(!confirm(`¿Eliminar a ${at.name} con todos sus registros y observaciones? Exporta un respaldo antes si quieres guardarlos.`)) return;
@@ -910,9 +986,10 @@ function route(){ const h=decodeURIComponent((location.hash||'').slice(1));
 window.addEventListener('hashchange',route);
 function setMeso(aid,k){ const at=JSON.parse(JSON.stringify(DATA.athletes[aid])); at.meso=k; Store.put('athletes',aid,at); if(aid===S.aid) S.week=null; flash(`${at.name.split(' ')[0]} ahora está en ${mesoLabel(k)}.`) }
 document.addEventListener('input',e=>{const t=e.target;
-  if(t.id==='t-rpe'||t.id==='cur-rpe'||t.id==='edit-rpe'){ const raw=t.value.replace(',','.').trim(), v=parseFloat(raw); t.style.borderColor=raw===''||(v>=1&&v<=10)?'':'var(--red)'; return }
+  if(t.dataset&&t.dataset.draft&&S.view==='sesion'){ const dr=curDraft(); dr[t.dataset.draft]=t.value; if(t.dataset.draft==='rpe') dr.rpeOk=false }
+  if(t.id==='t-rpe'||t.id==='cur-rpe'||t.id==='edit-rpe'||t.id==='coach-rpe'){ const raw=t.value.replace(',','.').trim(), v=parseFloat(raw); t.style.borderColor=raw===''||(v>=1&&v<=10)?'':'var(--red)'; return }
   if((t.id==='in-reps'||t.id==='in-kg')&&$('#bilbo-1rm')) $('#bilbo-1rm').innerHTML=bilboTxt($('#in-kg').value,$('#in-reps').value) });
-document.addEventListener('keydown',e=>{ if(e.key==='Enter'&&e.target.id==='t-rpe'){ e.preventDefault(); tRpeOk() } if(e.key==='Enter'&&e.target.id==='edit-rpe'){ e.preventDefault(); const b=document.querySelector('[data-act="editset-ok"]'); b&&b.click() } });
+document.addEventListener('keydown',e=>{ if(e.key==='Enter'&&e.target.id==='t-rpe'){ e.preventDefault(); tRpeOk() } if(e.key==='Enter'&&e.target.id==='coach-rpe'){ e.preventDefault(); const b=document.querySelector('[data-act="cset-ok"]'); b&&b.click() } if(e.key==='Enter'&&e.target.id==='cur-rpe'){ e.preventDefault(); const b=document.querySelector('[data-act="currpe-ok"]'); b&&b.click() } if(e.key==='Enter'&&e.target.id==='edit-rpe'){ e.preventDefault(); const b=document.querySelector('[data-act="editset-ok"]'); b&&b.click() } });
 document.addEventListener('change',e=>{const t=e.target; if(t.dataset&&t.dataset.meso) setMeso(t.dataset.meso,t.value)});
 // no borrar lo que alguien está escribiendo cuando llegan datos nuevos
 function softRender(){const ae=document.activeElement; if(ae&&/INPUT|TEXTAREA/.test(ae.tagName)&&ae.closest('main')){S.dirty=true;return} render()}
@@ -942,11 +1019,11 @@ function vAyuda(){ const D=(t,body,open)=>`<details${open?' open':''}><summary>$
   ${D('2. Elegir semana y día',`<ul><li>Arriba ves el mesociclo y las semanas (S1, S2…). La app abre en tu semana actual; toca otra para cambiar.</li><li><b>Vista semana</b> muestra todos los entrenamientos de la semana en tablas, como en la planilla (peso, series, reps, RPE, descanso, %RM y lo que ya hiciste). <b>Entrenar</b> vuelve a la lista de días para entrenar.</li><li>En <b>Entrenar</b> eliges el día. Cada día muestra si está <b>Pendiente</b>, <b>En curso</b> o <b>Hecho</b>.</li><li>Si abres un día que ya terminaste, la app pregunta si quieres <b>repetirlo</b>. Si dices que sí, se borra lo anotado antes y queda con la fecha de hoy (sirve si hiciste una prueba). Si dices que no, ves su resumen.</li></ul>`)}
   ${D('3. Durante el entrenamiento: kg y reps',`<ul><li>Cada ejercicio muestra el peso, las series, las reps, el RPE y el descanso planificados.</li><li>Los cuadros de <b>kg</b> y <b>reps</b> son editables: vienen con lo planificado (o con tu serie anterior). Si levantaste otro peso o hiciste otras reps, <b>cámbialos antes de apretar "Serie hecha"</b>. Queda registrado exactamente lo que escribiste.</li><li>En series AMRAP o al fallo, escribe cuántas reps hiciste.</li><li>Arriba ves las series que ya hiciste (S1, S2…) con su peso, reps y RPE.</li></ul>`)}
   ${D('4. Serie hecha y descanso',`<ul><li>Al apretar <b>Serie hecha</b> se guarda la serie y parte el descanso.</li><li>El círculo muestra el tiempo que queda y el <b>mínimo recomendado</b>; cuando lo cumples puedes seguir si te sientes listo.</li><li><b>−15 s</b> y <b>+30 s</b> ajustan el tiempo. <b>Saltar</b> cierra el descanso.</li><li>Al terminar el descanso suena, vibra y te llega una <b>notificación</b>, aunque estés fuera de la app; si tienes reloj conectado, vibra también. Actívalo en <b>Tema → Aviso al terminar el descanso</b>.</li><li>Cuando completas todas las series de un ejercicio, la app pasa sola al siguiente.</li></ul>`)}
-  ${D('5. RPE real (qué tan dura fue la serie)',`<ul><li>RPE del 1 al 10: 10 = no podías hacer ni una rep más, 9 = te quedaba 1, 8 = te quedaban 2, y así. Se aceptan decimales (8,5).</li><li>Es <b>opcional</b>, pero le sirve mucho a tu coach para ajustar tus cargas.</li><li>Puedes anotarlo en el cuadro que está bajo "Serie hecha" (rellénalo una vez hecha la serie) o en el descanso.</li><li>En el descanso escribes el número y aprietas <b>✓</b>: queda <b>RPE registrado</b>. Con <b>Modificar</b> lo cambias.</li><li>Al terminar la sesión te pregunta el <b>RPE del día</b> completo.</li></ul>`)}
+  ${D('5. RPE real (qué tan dura fue la serie)',`<ul><li>RPE del 1 al 10: 10 = no podías hacer ni una rep más, 9 = te quedaba 1, 8 = te quedaban 2, y así. Se aceptan decimales (8,5).</li><li>Es <b>opcional</b>, pero le sirve mucho a tu coach para ajustar tus cargas.</li><li>Puedes anotarlo en el cuadro que está bajo "Serie hecha" (rellénalo una vez hecha la serie) o en el descanso.</li><li>En el cuadro o en el descanso escribes el número y aprietas <b>✓</b>: queda <b>RPE registrado</b> en el ejercicio. Con <b>Modificar</b> lo cambias.</li><li>Al terminar la sesión te pregunta el <b>RPE del día</b> completo.</li></ul>`)}
   ${D('6. Saltar, volver y series no hechas',`<ul><li><b>Saltar ejercicio</b> sin marcar "Serie hecha" cuenta como que <b>esas series no se hicieron</b>. Tu coach lo ve así en su panel.</li><li>Si hiciste una serie, márcala siempre con "Serie hecha", aunque sea con otro peso o reps.</li><li><b>Anterior</b> te lleva al ejercicio previo para completar series que te faltaron.</li><li>Para <b>corregir el RPE</b> de una serie ya hecha, toca esa serie (S1, S2…) arriba de la tarjeta, escribe el nuevo valor y aprieta ✓.</li><li>Puedes salir y volver: el día queda <b>En curso</b> y retomas donde quedaste.</li></ul>`)}
   ${D('7. Serie Bilbo y 1RM estimado',`<ul><li>En la serie de <b>Press de banca Bilbo</b>, al escribir las reps ves tu <b>1RM estimado</b>: peso × reps × 0,03 + peso.</li><li>Queda guardado y tu coach ve tu avance sesión a sesión.</li></ul>`)}
   ${D('8. Observaciones para tu coach',`<ul><li>En cada ejercicio puedes tocar <b>Dejar observación</b>: elige una opción (Intensidad perfecta, Podría hacer más, Muy pesado, Molestia / dolor, Duda técnica) y escribe un comentario si quieres.</li><li>Tu coach recibe el aviso y te puede responder. Las respuestas aparecen en <b>Mis notas</b>.</li></ul>`)}
-  ${D('9. Terminar la sesión y resumen',`<ul><li>En el último ejercicio aparece <b>Terminar sesión</b>. Luego marcas el RPE del día y ves el <b>resumen</b>: kilos levantados, carga, series efectivas, RPE medio y grupos musculares, comparados con el plan.</li></ul>`)}
+  ${D('9. Terminar la sesión y resumen',`<ul><li>En el resumen puedes elegir una <b>foto</b>: la app le pone tus datos de la sesión (kilos movidos, series, reps, duración, PRs y mejores series) y la guardas en tu teléfono o la compartes.</li><li>En el último ejercicio aparece <b>Terminar sesión</b>. Luego marcas el RPE del día y ves el <b>resumen</b>: kilos levantados, carga, series efectivas, RPE medio y grupos musculares, comparados con el plan.</li></ul>`)}
   ${D('10. Dashboard',`<ul><li><b>Kilos levantados / tonelaje</b>: suma de kg × reps de tus series.</li><li><b>Carga</b>: tonelaje × RPE / 10.</li><li><b>Series efectivas</b>: series con RPE 7 o más.</li><li>También ves los grupos musculares trabajados, el tonelaje por día y por levantamiento, y tu peso más alto por semana.</li></ul>`)}
   ${D('11. Tema y avisos',`<ul><li>En <b>Tema</b> eliges el color de la app (dorado, rojo, azul, verde o rosa) y su tonalidad. Se guarda en tu teléfono.</li><li>Ahí también activas y pruebas el aviso del descanso.</li></ul>`)}
   ${D('12. Si algo no funciona',`<ul><li>Revisa tu internet y vuelve a abrir la app.</li><li>Si dice que el link no es válido, pídele a tu coach tu link actual.</li><li>Si no te llegan los avisos: permite las notificaciones de Chrome (o Powerosso) en los ajustes del teléfono y quita el ahorro de batería para Chrome. Con la pantalla bloqueada mucho rato, algunos teléfonos pausan la app.</li></ul>`)}
