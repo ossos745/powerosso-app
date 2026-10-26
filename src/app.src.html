@@ -191,6 +191,12 @@ textarea{resize:vertical;min-height:64px}
 details summary{cursor:pointer;list-style:none}
 details summary::-webkit-details-marker{display:none}
 @media (prefers-reduced-motion:no-preference){main>*{animation:in .2s ease both}@keyframes in{from{opacity:.5;transform:translateY(3px)}to{opacity:1;transform:none}}}
+/* foto: en celular se ajusta con los dedos, sin barras; formato destacado */
+@media (pointer:coarse){.pbars{display:none}}
+html.touch .pbars{display:none}
+.pfmt-lbl{color:var(--gold);font-weight:700}
+.pfmt-sel{appearance:none;-webkit-appearance:none;color:#111;font-weight:700;border:0;border-radius:12px;padding:12px 40px 12px 14px;font-size:16px;box-shadow:0 4px 14px rgba(0,0,0,.35);background-image:linear-gradient(135deg,var(--gold),var(--gold-2,var(--gold)));position:relative}
+.pfmt-lbl{position:relative}.pfmt-lbl::after{content:'▾';position:absolute;right:14px;bottom:11px;color:#111;font-size:18px;pointer-events:none}
 </style>
 
 <div class="app">
@@ -422,6 +428,8 @@ function sessionCard(scope){ const w=wkObj(S.week), a=ATH(), week=scope==='week'
   const seriesPlan=(week?w.days:w.days.filter(x=>x.n===S.day)).reduce((p,d)=>p+planMetrics(d).series,0);
   return {week,name:a.name,date,meso:mesoLabel((L0&&L0.meso)||mesoOf(a)),w:w.n,d:S.day,nDays:days.length,kg:all.reduce((p,s)=>p+(+s.kg||0)*(+s.reps||0),0),series:all.length,seriesPlan,reps,min,rpe,rpeOf,maxI,maxV,top,groups} }
 const fmtDur=m=>m>=60?`${Math.floor(m/60)} H ${m%60} MIN`:`${m} MIN`;
+// en pantallas táctiles la foto se ajusta con los dedos (sin barras)
+try{ if(navigator.maxTouchPoints>0||'ontouchstart' in window) document.documentElement.classList.add('touch') }catch(e){}
 const PHOTO_FMTS=[['clasico','Kg movidos + mejores series'],['grupos','Kg movidos + grupos musculares'],['mixto','Grupos musculares + mejores series']];
 const cssColor=c=>{ const m=/^var\((--[^)]+)\)$/.exec(c); return m?getComputedStyle(document.documentElement).getPropertyValue(m[1]).trim()||'#888':c };
 async function loadPhoto(file){ if(!file) return; flash('Preparando tu foto…');
@@ -505,11 +513,11 @@ const photoIns=sc=>`<div class="btns"><label class="btn goldb sm" style="positio
 function photoCardHtml(sc){ const on=S.photoUrl&&S.photoScope===sc;
   return `<div class="card"><div class="eyebrow" style="margin-bottom:6px">${sc==='week'?'Foto de tu semana':'Foto de tu entrenamiento'}</div><div class="small muted" style="margin-bottom:10px">Toma o elige una foto y la app le pone tus datos ${sc==='week'?'de la semana':'de hoy'}. Luego la guardas en tu teléfono o la compartes.</div>
     ${on?`<canvas id="photo-prev" role="img" aria-label="Tu foto con el resumen" style="width:100%;aspect-ratio:9/16;display:block;border-radius:12px;border:1px solid var(--line);touch-action:none;cursor:grab"></canvas>
-    <label class="f" style="margin-top:10px">Formato<select id="photo-fmt">${PHOTO_FMTS.map(([k,l])=>`<option value="${k}"${(S.photoFmt||'clasico')===k?' selected':''}>${l}</option>`).join('')}</select></label>
-    <div class="small muted" style="margin-top:6px">Arrastra con un dedo para mover el contenido y pellizca con dos para agrandarlo o achicarlo. También puedes usar las barras.</div>
-    <label class="f" style="margin-top:10px">Tamaño <span id="pscale-lbl">${S.photoScale||100}%</span><input type="range" id="photo-scale" min="40" max="160" step="1" value="${S.photoScale||100}" style="width:100%"></label>
+    <label class="f pfmt-lbl" style="margin-top:10px">Formato de la foto<select id="photo-fmt" class="pfmt-sel">${PHOTO_FMTS.map(([k,l])=>`<option value="${k}"${(S.photoFmt||'clasico')===k?' selected':''}>${l}</option>`).join('')}</select></label>
+    <div class="small muted" style="margin-top:6px">Arrastra con un dedo para mover el contenido y pellizca con dos para agrandarlo o achicarlo.<span class="pbars"> También puedes usar las barras.</span></div>
+    <div class="pbars"><label class="f" style="margin-top:10px">Tamaño <span id="pscale-lbl">${S.photoScale||100}%</span><input type="range" id="photo-scale" min="40" max="160" step="1" value="${S.photoScale||100}" style="width:100%"></label>
     <label class="f">Mover a los lados<input type="range" id="photo-x" min="-450" max="450" step="5" value="${S.photoX||0}" style="width:100%"></label>
-    <label class="f">Mover arriba ⟷ abajo<input type="range" id="photo-y" min="-850" max="850" step="5" value="${S.photoY||0}" style="width:100%"></label>
+    <label class="f">Mover arriba ⟷ abajo<input type="range" id="photo-y" min="-850" max="850" step="5" value="${S.photoY||0}" style="width:100%"></label></div>
     <button class="chip" data-act="photo-reset" style="margin-top:4px">Volver a la posición inicial</button>
     <div class="btns" style="margin-top:10px"><button class="btn goldb sm" data-act="photo-save">Guardar en el teléfono</button>${navigator.canShare?`<button class="btn ghost sm" data-act="photo-share">Compartir</button>`:''}</div>
     <div class="small muted" style="margin:12px 0 6px">Cambiar la foto</div>${photoIns(sc)}`:photoIns(sc)}</div>` }
