@@ -197,6 +197,10 @@ html.touch .pbars{display:none}
 .pfmt-lbl{color:var(--gold);font-weight:700}
 .pfmt-sel{appearance:none;-webkit-appearance:none;color:#111;font-weight:700;border:0;border-radius:12px;padding:12px 40px 12px 14px;font-size:16px;box-shadow:0 4px 14px rgba(0,0,0,.35);background-image:linear-gradient(135deg,var(--gold),var(--gold-2,var(--gold)));position:relative}
 .pfmt-lbl{position:relative}.pfmt-lbl::after{content:'▾';position:absolute;right:14px;bottom:11px;color:#111;font-size:18px;pointer-events:none}
+.bigt{font:800 34px/1 var(--display);text-transform:uppercase;letter-spacing:.02em;color:var(--gold);margin:4px 0 2px;text-wrap:balance}
+.card.hero{border:1px solid var(--gold);background:linear-gradient(160deg,color-mix(in srgb,var(--gold) 16%,var(--surface)) 0%,var(--surface) 60%)}
+.fig{display:block;width:100%;height:auto}.figbox{background:var(--surface-2);border-radius:12px;padding:6px 10px;margin:10px 0}.figbox .fig{max-height:190px}
+.mini{width:62px;flex:none;background:var(--surface-2);border-radius:8px;padding:2px}
 </style>
 
 <div class="app">
@@ -406,11 +410,11 @@ function vDias(){const w=wkObj(S.week), P=PLAN();
   if(S.wview) return `${toastHtml()}${tog}${vSemana(w)}`;
   const pr=prefsOf(), sw=(k,l)=>`<button class="chip" data-pref="${k}" aria-pressed="${!!pr[k]}">${pr[k]?'✓ ':''}${l}: ${pr[k]?'activado':'desactivado'}</button>`;
   return `${toastHtml()}${tog}<h2 class="h2">¿Qué día entrenas hoy?</h2>
-  <div class="chips" style="margin-bottom:10px">${sw('warm','Calentamiento')}${sw('aprox','Aproximaciones')}</div>
   ${w.days.map(d=>{const L=dayLog(w.n,d.n), pm=planMetrics(d), done=L&&L.done, nSets=d.exercises.reduce((a,x)=>a+x.sets,0), doneSets=L?Object.values(L.sets||{}).reduce((a,s)=>a+s.length,0):0;
     return `<button class="card day ${done?'done':''}" data-day="${d.n}"><div class="dn">${d.n}<small>${dayShort(d).toUpperCase()}</small></div>
     <div><div class="t">${title(d.focus)||dayName(d)}</div><div class="small muted">${d.exercises.length} ejercicios · ${nSets} series · ${fmt(pm.ton/1000,1)} t plan</div>${L&&!done?`<div class="bar" style="margin-top:6px"><b style="width:${100*doneSets/nSets}%"></b></div>`:''}</div>
-    <span class="pill ${done?'ok':L?'warn':''}">${done?'Hecho':L?'En curso':'Pendiente'}</span></button>`}).join('')}${det}`}
+    <span class="pill ${done?'ok':L?'warn':''}">${done?'Hecho':L?'En curso':'Pendiente'}</span></button>`}).join('')}
+  <div class="card"><div class="eyebrow" style="margin-bottom:8px">Antes de entrenar</div><div class="chips">${sw('warm','Calentamiento')}${sw('aprox','Aproximaciones')}</div></div>${det}`}
 
 // vista general de la semana: todos los días en tablas, como la hoja de Excel
 function vSemana(w){ const P=PLAN();
@@ -441,16 +445,34 @@ function noteHtml(n,coach){const cls=/Molestia|pesado/.test(n.tag||'')?'bad':/m�
 const prefsId=aid=>`${aid}~PREFS`;
 const prefsOf=(aid=S.aid)=>({warm:true,aprox:true,...(DATA.logs[prefsId(aid)]||{})});
 function setPref(k,v){ const id=prefsId(S.aid), pr={...prefsOf(),aid:S.aid,prefs:true,[k]:v,updatedAt:Date.now()}; Store.put('logs',id,pr) }
+// cada figura alterna entre la pose A y la B; 'rot' gira un brazo alrededor del hombro
+const SPL='keyTimes="0;.5;1" calcMode="spline" keySplines=".45 0 .55 1;.45 0 .55 1"';
+function figSvg(f){ const D=f.dur||2.6, an=(attr,a,b)=>a===b?'':`<animate attributeName="${attr}" dur="${D}s" repeatCount="indefinite" values="${a};${b};${a}" ${SPL}/>`;
+  const lines=(f.lines||[]).map(([a,b],i)=>`<polyline points="${a}" fill="none"${f===FIG.pullapart&&i===5?' stroke="var(--red)" stroke-width="4"':''}>${an('points',a,b||a)}</polyline>`).join('');
+  const [h0,h1]=f.head, head=`<circle r="9" cx="${h0[0]}" cy="${h0[1]}" fill="var(--gold)" stroke="none">${an('cx',h0[0],(h1||h0)[0])}${an('cy',h0[1],(h1||h0)[1])}</circle>`;
+  const rot=f.rot?`<g><line x1="${f.rot.cx}" y1="${f.rot.cy}" x2="${f.rot.cx}" y2="${f.rot.cy+f.rot.len}"/>${f.rot.bar?`<line x1="${f.rot.cx-9}" y1="${f.rot.cy+f.rot.len}" x2="${f.rot.cx+9}" y2="${f.rot.cy+f.rot.len}" stroke="var(--muted)" stroke-width="4"/>`:''}<animateTransform attributeName="transform" type="rotate" dur="${f.rot.dur||D}s" repeatCount="indefinite" values="${f.rot.values.map(v=>v+' '+f.rot.cx+' '+f.rot.cy).join(';')}"${f.rot.values.length===3?' '+SPL:''}/></g>`:'';
+  return `<svg class="fig" viewBox="0 0 200 140" role="img" aria-label="Animación del ejercicio"><line x1="10" y1="131" x2="190" y2="131" stroke="var(--line)" stroke-width="2"/>${f.props||''}<g stroke="var(--gold)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">${lines}${rot}${head}</g></svg>` }
+const FIG={
+  tobillo:{props:'<line x1="172" y1="30" x2="172" y2="131" stroke="var(--muted)" stroke-width="4"/>',head:[[112,43],[122,43]],lines:[
+    ['110,55 105,92','120,55 115,92'],['105,92 138,98 150,128','115,92 155,96 150,128'],['105,92 85,128 60,128','115,92 85,128 60,128'],['110,60 135,70 168,64','120,60 142,72 168,64']]},
+  cadera:{head:[[100,58],[100,58]],lines:[['100,70 100,118'],['100,76 76,128'],['100,76 124,128'],
+    ['95,120 64,124 55,128','95,120 104,104 55,128'],['105,120 96,104 145,128','105,120 136,124 145,128']]},
+  gato:{head:[[46,98],[44,70]],lines:[['62,85 100,66 138,88','62,85 100,100 138,88'],['62,85 60,128'],['138,88 140,128 172,128']]},
+  sentadilla:{head:[[101,22],[106,56]],lines:[['100,34 100,74','100,68 82,112'],['100,74 101,102 100,129','82,112 128,106 100,129'],['100,40 130,48','100,74 134,80']]},
+  circulos:{head:[[100,22]],lines:[['100,34 100,80'],['100,80 94,129'],['100,80 106,129']],rot:{cx:100,cy:40,len:36,values:[0,-360],dur:2}},
+  disloc:{head:[[100,22]],lines:[['100,34 100,80'],['100,80 94,129'],['100,80 106,129']],rot:{cx:100,cy:40,len:38,values:[0,-200,0],bar:true}},
+  torax:{head:[[48,82],[52,64]],lines:[['64,84 138,88'],['64,84 62,128'],['138,88 140,128 172,128']],rot:{cx:66,cy:84,len:34,values:[-10,175,-10]}},
+  pullapart:{props:'',head:[[100,22]],lines:[['100,34 100,80'],['100,80 88,129'],['100,80 112,129'],['88,42 95,52','88,42 52,46'],['112,42 105,52','112,42 148,46'],['95,52 105,52','52,46 148,46']]}};
 const MOV_PIERNA=[
-  {name:'Movilidad de tobillo en la pared',reps:'10 reps por lado',obs:'Lleva la rodilla hacia la pared sin despegar el talón. Movimiento lento y controlado.'},
-  {name:'Cadera 90/90',reps:'8 reps por lado',obs:'Sentado en el suelo con ambas rodillas a 90°. Gira de un lado al otro manteniendo la espalda recta.'},
-  {name:'Gato-camello (movilidad lumbar)',reps:'10 reps',obs:'En cuatro apoyos, redondea y luego arquea la espalda lento, siguiendo la respiración.'},
-  {name:'Sentadilla profunda con pausa (sin peso)',reps:'8 reps · pausa de 3 s abajo',obs:'Baja lo más profundo que puedas con el pecho arriba y empuja las rodillas hacia afuera.'}];
+  {name:'Movilidad de tobillo en la pared',fig:'tobillo',reps:'10 reps por lado',obs:'Lleva la rodilla hacia la pared sin despegar el talón. Movimiento lento y controlado.'},
+  {name:'Cadera 90/90',fig:'cadera',reps:'8 reps por lado',obs:'Sentado en el suelo con ambas rodillas a 90°. Gira de un lado al otro manteniendo la espalda recta.'},
+  {name:'Gato-camello (movilidad lumbar)',fig:'gato',reps:'10 reps',obs:'En cuatro apoyos, redondea y luego arquea la espalda lento, siguiendo la respiración.'},
+  {name:'Sentadilla profunda con pausa (sin peso)',fig:'sentadilla',reps:'8 reps · pausa de 3 s abajo',obs:'Baja lo más profundo que puedas con el pecho arriba y empuja las rodillas hacia afuera.'}];
 const MOV_TORSO=[
-  {name:'Círculos de brazos',reps:'10 adelante + 10 atrás',obs:'Brazos estirados; empieza con círculos chicos y ve agrandándolos.'},
-  {name:'Dislocaciones con banda o palo',reps:'12 reps',obs:'Agarre ancho; pasa la banda por sobre la cabeza hasta atrás sin doblar los codos.'},
-  {name:'Rotación torácica en cuadrupedia',reps:'8 reps por lado',obs:'Mano en la nuca; gira el codo hacia el techo siguiéndolo con la mirada. La cadera no se mueve.'},
-  {name:'Separación de banda (band pull-apart)',reps:'15 reps',obs:'Brazos estirados a la altura del pecho; junta las escápulas al separar la banda.'}];
+  {name:'Círculos de brazos',fig:'circulos',reps:'10 adelante + 10 atrás',obs:'Brazos estirados; empieza con círculos chicos y ve agrandándolos.'},
+  {name:'Dislocaciones con banda o palo',fig:'disloc',reps:'12 reps',obs:'Agarre ancho; pasa la banda por sobre la cabeza hasta atrás sin doblar los codos.'},
+  {name:'Rotación torácica en cuadrupedia',fig:'torax',reps:'8 reps por lado',obs:'Mano en la nuca; gira el codo hacia el techo siguiéndolo con la mirada. La cadera no se mueve.'},
+  {name:'Separación de banda (band pull-apart)',fig:'pullapart',reps:'15 reps',obs:'Brazos estirados a la altura del pecho; junta las escápulas al separar la banda.'}];
 const isLower=x=>/Cuádriceps|Isquios/.test(muscle(x.name));
 // pierna si la mayoría de los ejercicios son de tren inferior, torso si son de tren superior; si está parejo, 2 y 2
 function warmList(d){ const n=d.exercises.length||1, lo=d.exercises.filter(isLower).length/n;
@@ -471,14 +493,15 @@ function obsCard(ns){ return `<div class="card"><div class="row"><span class="ey
       <div class="btns" style="margin-top:8px"><button class="btn ghost sm" data-act="obs-cancel">Cancelar</button><button class="btn goldb sm" data-act="obs-save">Guardar observación</button></div>`
     :`<button class="btn ghost sm" style="margin-top:8px" data-act="obs-open">Dejar observación</button>`}</div>` }
 function vWarm(d,L){ const wl=warmList(d), top=`<div class="row"><button class="btn ghost sm inline" data-act="back">← Días</button><span class="eyebrow">${dayName(d)} · ${title(d.focus)}</span></div>`;
-  if(S.warmI==null) return `${top}<div class="card"><div class="eyebrow">Antes de empezar</div><div class="exname">Calentamiento recomendado</div>
+  if(S.warmI==null) return `${top}<div class="card hero"><div class="eyebrow">Antes de empezar</div><div class="bigt">Calentamiento recomendado</div>
     <div class="small muted" style="margin:4px 0 10px">4 ejercicios de movilidad para ${wl.tipo} · 1 min de descanso entre cada uno.</div>
-    ${wl.items.map((m,i)=>`<div class="row" style="padding:6px 0;border-top:1px solid var(--line)"><span>${i+1}. ${m.name}</span><span class="small muted" style="text-align:right">${m.reps}</span></div>`).join('')}
+    ${wl.items.map((m,i)=>`<div class="row" style="padding:6px 0;border-top:1px solid var(--line);gap:10px"><span class="mini">${figSvg(FIG[m.fig])}</span><span style="flex:1">${i+1}. ${m.name}</span><span class="small muted" style="text-align:right">${m.reps}</span></div>`).join('')}
     <div class="btns" style="margin-top:12px"><button class="btn goldb sm" data-act="warm-start">Iniciar</button><button class="btn ghost sm" data-act="warm-skip">Saltar</button></div></div>${toastHtml()}`;
   const m=wl.items[S.warmI], last=S.warmI===wl.items.length-1, ns=exNotes(S.week,S.day,-1-S.warmI);
   return `${top}<div class="dots" aria-label="Calentamiento ${S.warmI+1} de ${wl.items.length}">${wl.items.map((e,i)=>`<i class="${i<S.warmI?'d':i===S.warmI?'c':''}"></i>`).join('')}</div>
   <div class="card"><div class="row"><span class="eyebrow">Calentamiento ${S.warmI+1} de ${wl.items.length}</span><span class="pill">Movilidad</span></div>
     <div class="exname">${m.name}</div>
+    <div class="figbox">${figSvg(FIG[m.fig])}</div>
     <div class="spec" style="grid-template-columns:2fr 1fr"><div><b style="font-size:20px">${m.reps}</b><span>Repeticiones</span></div><div><b>1:00</b><span>Descanso</span></div></div>
     <div class="small" style="margin-top:10px">${m.obs}</div>
     <button class="btn" style="margin-top:12px" data-act="warm-next">${last?'Terminar calentamiento · descanso 1:00':'Hecho · descanso 1:00'}</button></div>
@@ -489,7 +512,7 @@ function aproxHtml(x){ const A=S.aprox&&S.aprox.ex===S.ex?S.aprox:null, W=A?A.kg
   const table=st.length?`<div class="tbl" style="margin-top:8px"><table><thead><tr><th>Serie</th><th>%</th><th>Reps</th><th>Peso</th><th>Desc.</th></tr></thead><tbody>
     ${st.map((r,i)=>`<tr${A&&i===A.step?' style="background:var(--surface-2)"':''}><td class="num">${A&&i<A.step?'✓':i+1}</td><td>${r.lbl}</td><td class="num">${r.reps}</td><td class="num">${fmt(r.kg,1)} kg</td><td class="num">${fmtRest(r.rest)}</td></tr>`).join('')}
     <tr><td><b>Trabajo</b></td><td>100%</td><td>las del día</td><td class="num"><b>${fmt(W,1)} kg</b></td><td></td></tr></tbody></table></div>`:'';
-  if(!A) return `<div class="card"><div class="eyebrow">Antes de las series de trabajo</div><div class="exname">Aproximaciones</div>
+  if(!A) return `<div class="card"><div class="eyebrow">Tu peso de trabajo</div>
     <label class="f" style="margin-top:8px">Peso de trabajo (kg)<input id="aprox-kg" inputmode="decimal" value="${W!=null?esc(W):''}" placeholder="Escribe tu peso de trabajo"></label>
     ${table}<div class="small muted" style="margin-top:6px">Pesos redondeados a 2,5 kg.</div>
     <div class="btns" style="margin-top:12px"><button class="btn goldb sm" data-act="aprox-start">Iniciar</button><button class="btn ghost sm" data-act="aprox-skip">Saltar</button></div></div>`;
@@ -511,8 +534,8 @@ function vSesion(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day), L=ensur
   <div class="dots" aria-label="Ejercicio ${S.ex+1} de ${d.exercises.length}">${d.exercises.map((e,i)=>`<i class="${(L.sets[i]||[]).length>=e.sets?'d':i===S.ex?'c':''}"></i>`).join('')}</div>
   <div class="card">
     <div class="row"><span class="eyebrow">Ejercicio ${S.ex+1} de ${d.exercises.length}</span><span class="pill">${x.pct?`${fmt(x.pct*100)} % RM`:LIFT(x.name)==='Accesorio'?'Accesorio':LIFT(x.name)}</span></div>
-    <div class="exname">${title(x.name)}</div>
-    <div class="load">${kgTxt}${x.range?`<span class="muted num small">rango ${esc(x.range)}</span>`:''}</div>
+    ${apx?`<div class="bigt">Aproximaciones</div><div class="small muted" style="margin-top:2px">para iniciar</div><div class="exname" style="font-size:24px;margin-top:6px">${title(x.name)}</div>${x.kg!=null?`<div class="num" style="font-size:20px;font-weight:700;margin-bottom:4px">${fmt(x.kg,1)} kg <span class="muted small">peso de trabajo planificado</span></div>`:''}`:`<div class="exname">${title(x.name)}</div>`}
+    <div class="load"${apx?' style="display:none"':''}>${kgTxt}${x.range?`<span class="muted num small">rango ${esc(x.range)}</span>`:''}</div>
     <div class="spec"><div><b>${x.sets}</b><span>Series</span></div><div><b>${esc(x.reps||'—')}</b><span>Reps</span></div><div><b>${esc(x.rpe??'—')}</b><span>RPE</span></div><div><b>${fmtRest(x.rest.max)}</b><span>Descanso</span></div></div>
   </div>
   ${toastHtml()}
