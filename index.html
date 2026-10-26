@@ -201,6 +201,8 @@ html.touch .pbars{display:none}
 .card.hero{border:1px solid var(--gold);background:linear-gradient(160deg,color-mix(in srgb,var(--gold) 16%,var(--surface)) 0%,var(--surface) 60%)}
 .fig{display:block;width:100%;height:auto}.figbox{background:var(--surface-2);border-radius:12px;padding:6px 10px;margin:10px 0}.figbox .fig{max-height:190px}
 .mini{width:62px;flex:none;background:var(--surface-2);border-radius:8px;padding:2px}
+button.day{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.daymenu{border:1px solid var(--red);margin-top:-6px}
 </style>
 
 <div class="app">
@@ -410,10 +412,12 @@ function vDias(){const w=wkObj(S.week), P=PLAN();
   if(S.wview) return `${toastHtml()}${tog}${vSemana(w)}`;
   const pr=prefsOf(), sw=(k,l)=>`<button class="chip" data-pref="${k}" aria-pressed="${!!pr[k]}">${pr[k]?'✓ ':''}${l}: ${pr[k]?'activado':'desactivado'}</button>`;
   return `${toastHtml()}${tog}<h2 class="h2">¿Qué día entrenas hoy?</h2>
-  ${w.days.map(d=>{const L=dayLog(w.n,d.n), pm=planMetrics(d), done=L&&L.done, nSets=d.exercises.reduce((a,x)=>a+x.sets,0), doneSets=L?Object.values(L.sets||{}).reduce((a,s)=>a+s.length,0):0;
+  ${w.days.map(d=>{const L0=dayLog(w.n,d.n), pm=planMetrics(d), done=L0&&L0.done, nSets=d.exercises.reduce((a,x)=>a+x.sets,0), doneSets=L0?Object.values(L0.sets||{}).reduce((a,s)=>a+s.length,0):0, L=L0&&(done||doneSets)?L0:null;
     return `<button class="card day ${done?'done':''}" data-day="${d.n}"><div class="dn">${d.n}<small>${dayShort(d).toUpperCase()}</small></div>
     <div><div class="t">${title(d.focus)||dayName(d)}</div><div class="small muted">${d.exercises.length} ejercicios · ${nSets} series · ${fmt(pm.ton/1000,1)} t plan</div>${L&&!done?`<div class="bar" style="margin-top:6px"><b style="width:${100*doneSets/nSets}%"></b></div>`:''}</div>
-    <span class="pill ${done?'ok':L?'warn':''}">${done?'Hecho':L?'En curso':'Pendiente'}</span></button>`}).join('')}
+    <span class="pill ${done?'ok':L?'warn':''}">${done?'Hecho':L?'En curso':'Pendiente'}</span></button>
+    ${S.dayMenu===d.n?`<div class="card daymenu"><div class="row"><span class="eyebrow">${dayName(d)}</span><button class="chip" data-act="daymenu-close">Cerrar</button></div><button class="btn sm" style="margin-top:8px" data-act="day-reset" data-n="${d.n}">Reiniciar día</button><div class="small muted" style="margin-top:6px">Borra las series, kg, reps y RPE anotados de este día y vuelve a quedar pendiente.</div></div>`:''}`}).join('')}
+  <div class="small muted" style="margin:-4px 0 10px">Mantén presionado un día para reiniciarlo.</div>
   <div class="card"><div class="eyebrow" style="margin-bottom:8px">Antes de entrenar</div><div class="chips">${sw('warm','Calentamiento')}${sw('aprox','Aproximaciones')}</div></div>${det}`}
 
 // vista general de la semana: todos los días en tablas, como la hoja de Excel
@@ -1159,6 +1163,15 @@ Write-Host "  App: $App"
 `;
 function copy(txt){try{navigator.clipboard.writeText(txt).then(()=>flash('Link copiado.')).catch(()=>flash('Mantén presionado el link para copiarlo.'))}catch(e){flash('Mantén presionado el link para copiarlo.')}}
 
+// mantener presionado un día (en la lista de días) abre la opción de reiniciarlo
+let lpT=null, lpXY=null;
+document.addEventListener('pointerdown',e=>{ const b=e.target.closest('button.day[data-day]'); if(!b) return; lpXY=[e.clientX,e.clientY]; clearTimeout(lpT);
+  lpT=setTimeout(()=>openDayMenu(b),550) });
+function openDayMenu(b){ clearTimeout(lpT); if(S.dayMenu===+b.dataset.day&&S.lpFired) return; S.lpFired=true; S.dayMenu=+b.dataset.day; try{navigator.vibrate&&navigator.vibrate(30)}catch(_){} render() }
+['pointerup','pointercancel'].forEach(t=>document.addEventListener(t,()=>clearTimeout(lpT)));
+document.addEventListener('pointermove',e=>{ if(lpXY&&Math.hypot(e.clientX-lpXY[0],e.clientY-lpXY[1])>10) clearTimeout(lpT) });
+document.addEventListener('contextmenu',e=>{ const b=e.target.closest('button.day[data-day]'); if(b){ e.preventDefault(); openDayMenu(b) } });
+document.addEventListener('click',e=>{ if(S.lpFired){ S.lpFired=false; if(e.target.closest('button.day[data-day]')){ e.preventDefault(); e.stopPropagation(); return } } },true);
 document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b) return; const a=b.dataset;
   if(a.setrpe){ const T=S.timer; if(!T||!T.set) return; const L=ensureLog(), st=(L.sets[T.set.ex]||[])[T.set.i]; if(!st) return; const v=+a.setrpe; st.rpe=st.rpe===v?null:v; saveLog();
     document.querySelectorAll('[data-setrpe]').forEach(x=>x.setAttribute('aria-pressed',+x.dataset.setrpe===st.rpe)); return }
@@ -1192,7 +1205,7 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
   if(a.nf!==undefined){S.nfilter=a.nf; return render()}
   if(a.review){const n=DATA.notes[a.review]; Store.put('notes',a.review,{...n,reviewed:!n.reviewed}); return render()}
   if(a.reply){S.replyTo=a.reply; render(); const t=$('#reply-txt'); t&&t.focus(); return}
-  if(a.day){ S.editSet=null; S.warmI=null; S.aprox=null; S.aproxW=null; S.photoUrl=null; S.photoBlob=null; S.photoImg=null; S.photoCv=null; const L0=dayLog(S.week,+a.day);
+  if(a.day){ S.dayMenu=null; S.editSet=null; S.warmI=null; S.aprox=null; S.aproxW=null; S.photoUrl=null; S.photoBlob=null; S.photoImg=null; S.photoCv=null; const L0=dayLog(S.week,+a.day);
     if(L0&&L0.done){ S.day=+a.day; S.toast='';
       if(!confirm('Este día ya está registrado. ¿Quieres repetirlo? Se reemplaza lo anotado antes y queda con la fecha de hoy.')){ S.view='resumen'; return render() }
       const L=ensureLog(); L.sets={}; L.done=false; L.rpeDay=null; L.finishedAt=null; L.trainedAt=Date.now(); saveLog() }
@@ -1233,6 +1246,11 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
     case 'aprox-next': { const A=S.aprox; if(!A) return; const st=aproxSteps(A.kg), r=st[A.step], x=d.exercises[S.ex];
       if(A.step>=st.length-1){ const L=ensureLog(); (L.aprox=L.aprox||{})[S.ex]='done'; saveLog(); S.aprox=null } else A.step++;
       render(); askNotif(); return startTimer({max:r.rest,min:r.rest},S.aprox?`Siguiente aproximación: ${fmt(st[A.step].kg,1)} kg × ${st[A.step].reps}`:`Siguiente: serie de trabajo · ${fmt(A.kg,1)} kg · ${title(x.name)}`) }
+    case 'daymenu-close': S.dayMenu=null; return render();
+    case 'day-reset': { const n=+a.n, w=wkObj(S.week), dd=w.days.find(x=>x.n===n), id=logId(S.aid,S.week,n), L=DATA.logs[id];
+      if(!confirm(`¿Estás seguro de reiniciar ${dayName(dd)}? Se borran las series, kg, reps y RPE anotados de ese día y vuelve a quedar pendiente. Las observaciones se mantienen.`)) return;
+      if(L) Store.put('logs',id,{aid:S.aid,meso:L.meso||mesoOf(ATH()),w:S.week,d:n,sets:{},done:false,resetAt:Date.now()});
+      S.dayMenu=null; S.draft=null; S.toast=`${dayName(dd)} reiniciado.`; S.toastErr=false; return render() }
     case 'obs-open': S.obsOpen=true; S.obsTag=null; render(); return;
     case 'obs-cancel': S.obsOpen=false; return render();
     case 'obs-save': { const txt=($('#obs-txt').value||'').trim(); if(!S.obsTag&&!txt) return flash('Elige una opción o escribe algo.',true);
@@ -1321,7 +1339,7 @@ function vAyuda(){ const D=(t,body,open)=>`<details${open?' open':''}><summary>$
   return `<h2 class="h2">Ayuda</h2><div class="muted small">Cómo funciona Powerosso App y cómo sacarle el máximo. Toca cada tema para abrirlo.</div>
   <div class="card help">
   ${D('1. Tu link y la app en el teléfono',`<ul><li>Entras con el link personal que te envió tu coach. No lo compartas: es tu acceso.</li><li>Para tenerla como app: abre tu link en <b>Chrome</b> → menú <b>⋮</b> → <b>Instalar app</b> (o "Agregar a pantalla principal"). Desde ahí abre directo en tu planificación.</li><li>Necesitas internet para que se guarde lo que anotas y lo vea tu coach.</li></ul>`,true)}
-  ${D('2. Elegir semana y día',`<ul><li>Arriba ves el mesociclo y las semanas (S1, S2…). La app abre en tu semana actual; toca otra para cambiar.</li><li><b>Vista semana</b> muestra todos los entrenamientos de la semana en tablas, como en la planilla (peso, series, reps, RPE, descanso, %RM y lo que ya hiciste). <b>Entrenar</b> vuelve a la lista de días para entrenar.</li><li>En <b>Entrenar</b> eliges el día. Cada día muestra si está <b>Pendiente</b>, <b>En curso</b> o <b>Hecho</b>.</li><li>Si abres un día que ya terminaste, la app pregunta si quieres <b>repetirlo</b>. Si dices que sí, se borra lo anotado antes y queda con la fecha de hoy (sirve si hiciste una prueba). Si dices que no, ves su resumen.</li></ul>`)}
+  ${D('2. Elegir semana y día',`<ul><li><b>Mantén presionado un día</b> para reiniciarlo: se borran las series, kg, reps y RPE de ese día (te pregunta antes) y vuelve a quedar pendiente.</li><li>Arriba ves el mesociclo y las semanas (S1, S2…). La app abre en tu semana actual; toca otra para cambiar.</li><li><b>Vista semana</b> muestra todos los entrenamientos de la semana en tablas, como en la planilla (peso, series, reps, RPE, descanso, %RM y lo que ya hiciste). <b>Entrenar</b> vuelve a la lista de días para entrenar.</li><li>En <b>Entrenar</b> eliges el día. Cada día muestra si está <b>Pendiente</b>, <b>En curso</b> o <b>Hecho</b>.</li><li>Si abres un día que ya terminaste, la app pregunta si quieres <b>repetirlo</b>. Si dices que sí, se borra lo anotado antes y queda con la fecha de hoy (sirve si hiciste una prueba). Si dices que no, ves su resumen.</li></ul>`)}
   ${D('Calentamiento y aproximaciones',`<ul><li>Al abrir un día aparece el <b>Calentamiento recomendado</b>: 4 ejercicios de movilidad (piernas y lumbar en días de pierna; brazos y tronco en días de torso) con 1 min de descanso entre cada uno. Puedes <b>Iniciar</b> o <b>Saltar</b>.</li><li>Antes de squat, press banca y peso muerto aparecen las <b>Aproximaciones</b>: escribe tu peso de trabajo y la app te guía serie por serie (barra vacía, 40%, 60%, 75% y 90%) con su descanso. Los pesos se redondean a 2,5 kg.</li><li>En <b>Entrenar</b> puedes activar o desactivar el calentamiento y las aproximaciones. Tu coach también puede cambiarlo.</li></ul>`)}
   ${D('3. Durante el entrenamiento: kg y reps',`<ul><li>Cada ejercicio muestra el peso, las series, las reps, el RPE y el descanso planificados.</li><li>Los cuadros de <b>kg</b> y <b>reps</b> son editables: vienen con lo planificado (o con tu serie anterior). Si levantaste otro peso o hiciste otras reps, <b>cámbialos antes de apretar "Serie hecha"</b>. Queda registrado exactamente lo que escribiste.</li><li>En series AMRAP o al fallo, escribe cuántas reps hiciste.</li><li>Arriba ves las series que ya hiciste (S1, S2…) con su peso, reps y RPE.</li></ul>`)}
   ${D('4. Serie hecha y descanso',`<ul><li>Al apretar <b>Serie hecha</b> se guarda la serie y parte el descanso.</li><li>El círculo muestra el tiempo que queda y el <b>mínimo recomendado</b>; cuando lo cumples puedes seguir si te sientes listo.</li><li><b>−15 s</b> y <b>+30 s</b> ajustan el tiempo. <b>Saltar</b> cierra el descanso.</li><li>Al terminar el descanso suena, vibra y te llega una <b>notificación</b>, aunque estés fuera de la app; si tienes reloj conectado, vibra también. Actívalo en <b>Tema → Aviso al terminar el descanso</b>.</li><li>Cuando completas todas las series de un ejercicio, la app pasa sola al siguiente.</li></ul>`)}
