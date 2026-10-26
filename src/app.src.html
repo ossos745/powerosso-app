@@ -404,45 +404,69 @@ function curDraft(){ const L=ensureLog(), k=draftKey((L.sets[S.ex]||[]).length);
 function sessionCard(){ const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day), L=dayLog(w.n,d.n), rm=realMetrics(L), pm=planMetrics(d), a=ATH(); const t0=sessDate(L);
   const sets=Object.values(L.sets||{}).flat(), reps=sets.reduce((p,s)=>p+(+s.reps||0),0), ts=sets.map(s=>s.t||0).filter(Boolean);
   const start=L.startedAt||(ts.length?Math.min(...ts):0), end=L.finishedAt||(ts.length?Math.max(...ts):0), min=start&&end>start?Math.round((end-start)/60000):0;
-  // historial previo del alumno por ejercicio (mismo nombre), para los PR
-  const prev={}; Object.entries(DATA.logs).forEach(([id,o])=>{ if(o.aid!==S.aid||o===L||sessDate(o)>=t0) return; const P=plansOf(a)[o.meso], ww=P&&P.weeks.find(x=>x.n===o.w), dd=ww&&ww.days.find(x=>x.n===o.d); if(!dd) return;
-    Object.entries(o.sets||{}).forEach(([i,arr])=>{ const x=dd.exercises[i]; if(!x) return; const k=normU(x.name), p=prev[k]=prev[k]||{kg:0,ton:0}; (arr||[]).forEach(s=>{ p.kg=Math.max(p.kg,+s.kg||0); p.ton=Math.max(p.ton,(+s.kg||0)*(+s.reps||0)) }) }) });
   const ex=Object.entries(L.sets||{}).map(([i,arr])=>{ const x=d.exercises[i], ok=(arr||[]).filter(s=>+s.kg>0&&+s.reps>0); if(!x||!ok.length) return null;
-    const best=ok.reduce((b,s)=>(+s.kg>+b.kg||(+s.kg===+b.kg&&+s.reps>+b.reps))?s:b), bt=ok.reduce((b,s)=>(+s.kg*+s.reps>+b.kg*+b.reps)?s:b), p=prev[normU(x.name)];
-    return {name:title(x.name),lift:LIFT(x.name),best,bt,pkg:p&&p.kg&&+best.kg>p.kg?+best.kg-p.kg:0,pton:p&&p.ton&&bt.kg*bt.reps>p.ton?bt.kg*bt.reps-p.ton:0} }).filter(Boolean);
-  const prK=ex.filter(e=>e.pkg).sort((x,y)=>y.pkg-x.pkg)[0], prT=ex.filter(e=>e.pton).sort((x,y)=>y.pton-x.pton)[0];
+    const best=ok.reduce((b,s)=>(+s.kg>+b.kg||(+s.kg===+b.kg&&+s.reps>+b.reps))?s:b), bt=ok.reduce((b,s)=>(+s.kg*+s.reps>+b.kg*+b.reps)?s:b);
+    return {name:title(x.name),lift:LIFT(x.name),best,bt} }).filter(Boolean);
+  // máx. intensidad = serie con más peso; máx. volumen = serie con más kg × reps
+  const maxI=ex.slice().sort((x,y)=>(+y.best.kg-+x.best.kg)||(+y.best.reps-+x.best.reps))[0], maxV=ex.slice().sort((x,y)=>(+y.bt.kg*+y.bt.reps)-(+x.bt.kg*+x.bt.reps))[0];
   const top=ex.slice().sort((x,y)=>(x.lift==='Accesorio')-(y.lift==='Accesorio')||(+y.best.kg*+y.best.reps)-(+x.best.kg*+x.best.reps)).slice(0,4);
-  return {name:a.name,date:fdNum(t0||Date.now()),meso:mesoLabel(L.meso||mesoOf(a)),w:w.n,d:d.n,kg:rm.ton,series:rm.series,seriesPlan:pm.series,reps,min,prK,prT,top} }
+  const grp={}; d.exercises.forEach((x,i)=>((L.sets||{})[i]||[]).forEach(st=>{ const g=muscle(x.name); grp[g]=(grp[g]||0)+(+st.kg||0)*(+st.reps||0) }));
+  const groups=Object.entries(grp).filter(([g,v])=>v>0).sort((x,y)=>y[1]-x[1]);
+  return {name:a.name,date:fdNum(t0||Date.now()),meso:mesoLabel(L.meso||mesoOf(a)),w:w.n,d:d.n,kg:rm.ton,series:rm.series,seriesPlan:pm.series,reps,min,maxI,maxV,top,groups} }
 const fmtDur=m=>m>=60?`${Math.floor(m/60)} H ${m%60} MIN`:`${m} MIN`;
-async function makePhoto(file){ if(!file) return; flash('Preparando tu foto…');
-  try{
-    const img=await new Promise((ok,ko)=>{ const i=new Image(); i.onload=()=>ok(i); i.onerror=ko; i.src=URL.createObjectURL(file) });
-    try{ await Promise.all(['800 100px "Barlow Condensed"','700 40px "Barlow Condensed"','500 30px "IBM Plex Sans"'].map(f=>document.fonts.load(f))) }catch(e){}
-    const c=sessionCard(), W=1080, H=1920, cv=document.createElement('canvas'); cv.width=W; cv.height=H; const g=cv.getContext('2d');
-    const sc=Math.max(W/img.naturalWidth,H/img.naturalHeight), iw=img.naturalWidth*sc, ih=img.naturalHeight*sc; g.drawImage(img,(W-iw)/2,(H-ih)/2,iw,ih);
-    const acc=getComputedStyle(document.documentElement).getPropertyValue('--gold').trim()||'#d4ad5e';
-    g.fillStyle='rgba(0,0,0,.30)'; g.fillRect(0,0,W,H); const gr=g.createLinearGradient(0,560,0,1720); gr.addColorStop(0,'rgba(0,0,0,0)'); gr.addColorStop(.18,'rgba(0,0,0,.55)'); gr.addColorStop(.82,'rgba(0,0,0,.6)'); gr.addColorStop(1,'rgba(0,0,0,0)'); g.fillStyle=gr; g.fillRect(0,560,W,1160);
-    const D='"Barlow Condensed","Arial Narrow",sans-serif', B='"IBM Plex Sans",system-ui,sans-serif';
-    const txt=(t,y,font,col,ls,align='center',x=W/2)=>{ g.font=font; g.fillStyle=col; g.textAlign=align; g.textBaseline='alphabetic'; try{g.letterSpacing=(ls||0)+'px'}catch(e){} g.shadowColor='rgba(0,0,0,.6)'; g.shadowBlur=12; g.fillText(t,x,y); g.shadowBlur=0; try{g.letterSpacing='0px'}catch(e){} };
-    const fit=(t,max,font)=>{ g.font=font; if(g.measureText(t).width<=max) return t; while(t.length>3&&g.measureText(t+'…').width>max) t=t.slice(0,-1); return t+'…' };
-    let y=720;
-    txt('TEAM POWEROSSO',y,`800 74px ${D}`,'#fff',16); y+=62;
-    txt(fit(`${String(c.name).toUpperCase()} · ${c.date}`,W-120,`600 38px ${D}`),y,`600 38px ${D}`,'rgba(255,255,255,.85)',6); y+=70;
-    txt(fit(`${String(c.meso).toUpperCase()} · SEMANA ${c.w} · DÍA ${c.d}`,W-140,`700 50px ${D}`),y,`700 50px ${D}`,'#fff',8); y+=245;
-    txt(fmt(c.kg),y,`800 230px ${D}`,acc,2); y+=72;
-    txt('KG MOVIDOS',y,`700 54px ${D}`,acc,18); y+=86;
-    txt([`${c.series}/${c.seriesPlan} SERIES`,`${c.reps} REPS`,c.min?fmtDur(c.min):''].filter(Boolean).join(' · '),y,`700 50px ${D}`,'#fff',4); y+=80;
-    const pill=(lab,desc)=>{ g.font=`800 32px ${D}`; try{g.letterSpacing='4px'}catch(e){} const pw=g.measureText(lab).width+36; try{g.letterSpacing='0px'}catch(e){} const x0=70;
-      g.fillStyle=acc; g.beginPath(); (g.roundRect?g.roundRect(x0,y-36,pw,48,8):g.rect(x0,y-36,pw,48)); g.fill(); txt(lab,y,`800 32px ${D}`,'#111',4,'left',x0+18);
-      txt(fit(desc,W-x0-pw-90,`500 30px ${B}`),y-2,`500 30px ${B}`,'#fff',0,'left',x0+pw+20); y+=66 };
-    if(c.prK) pill('PR EN CARGA',`${c.prK.name} · ${fmt(+c.prK.best.kg,1)} kg × ${c.prK.best.reps} · +${fmt(c.prK.pkg,1)} kg`);
-    if(c.prT) pill('PR EN TONELAJE',`${c.prT.name} · ${fmt(+c.prT.bt.kg,1)} × ${c.prT.bt.reps} = ${fmt(c.prT.bt.kg*c.prT.bt.reps)} kg · +${fmt(c.prT.pton)} kg`);
-    if(c.top.length){ y+=16; txt('MEJORES SERIES POR EJERCICIO',y,`700 36px ${D}`,'rgba(255,255,255,.75)',10); y+=70;
-      c.top.forEach(e=>{ txt(fit(e.name,640,`500 40px ${B}`),y,`500 40px ${B}`,'#fff',0,'left',150); txt(`${fmt(+e.best.kg,1)} kg × ${e.best.reps}`,y,`700 46px ${D}`,'#fff',1,'right',W-150); y+=68 }) }
-    const lg=await new Promise(ok=>{ const i=new Image(); i.onload=()=>ok(i); i.onerror=()=>ok(null); i.src=LOGO }); if(lg){ const lw=170, lh=lw*lg.naturalHeight/lg.naturalWidth; g.drawImage(lg,(W-lw)/2,Math.min(H-lh-70,y+20),lw,lh) }
-    const blob=await new Promise(ok=>cv.toBlob(ok,'image/png')); if(S.photoUrl) URL.revokeObjectURL(S.photoUrl);
-    S.photoBlob=blob; S.photoUrl=URL.createObjectURL(blob); S.photoName=`powerosso-S${c.w}-D${c.d}-${c.date}.png`; S.toast=''; render();
-  }catch(e){ console.warn(e); flash('No se pudo preparar la foto. Prueba con otra.',true) } }
+const PHOTO_FMTS=[['clasico','Kg movidos + mejores series'],['grupos','Kg movidos + grupos musculares'],['mixto','Grupos musculares + mejores series']];
+const cssColor=c=>{ const m=/^var\((--[^)]+)\)$/.exec(c); return m?getComputedStyle(document.documentElement).getPropertyValue(m[1]).trim()||'#888':c };
+async function loadPhoto(file){ if(!file) return; flash('Preparando tu foto…');
+  try{ const img=await new Promise((ok,ko)=>{ const i=new Image(); i.onload=()=>ok(i); i.onerror=ko; i.src=URL.createObjectURL(file) }); S.photoImg=img; S.photoScale=S.photoScale||100; S.photoFmt=S.photoFmt||'clasico'; await drawPhoto(); S.toast=''; render() }
+  catch(e){ console.warn(e); flash('No se pudo abrir esa foto. Prueba con otra.',true) } }
+async function drawPhoto(){ const img=S.photoImg; if(!img) return;
+  try{ await Promise.all(['800 100px "Barlow Condensed"','700 40px "Barlow Condensed"','500 30px "IBM Plex Sans"'].map(f=>document.fonts.load(f))) }catch(e){}
+  const c=sessionCard(), fm=S.photoFmt||'clasico', k=(S.photoScale||100)/100, W=1080, H=1920, cv=document.createElement('canvas'); cv.width=W; cv.height=H; const g=cv.getContext('2d');
+  const sc=Math.max(W/img.naturalWidth,H/img.naturalHeight), iw=img.naturalWidth*sc, ih=img.naturalHeight*sc; g.drawImage(img,(W-iw)/2,(H-ih)/2,iw,ih);
+  const acc=getComputedStyle(document.documentElement).getPropertyValue('--gold').trim()||'#d4ad5e';
+  const D='"Barlow Condensed","Arial Narrow",sans-serif', B='"IBM Plex Sans",system-ui,sans-serif';
+  const txt=(t,y,font,col,ls,align='center',x=W/2)=>{ g.font=font; g.fillStyle=col; g.textAlign=align; g.textBaseline='alphabetic'; try{g.letterSpacing=(ls||0)+'px'}catch(e){} g.shadowColor='rgba(0,0,0,.6)'; g.shadowBlur=12; g.fillText(t,x,y); g.shadowBlur=0; try{g.letterSpacing='0px'}catch(e){} };
+  const fit=(t,max,font)=>{ g.font=font; if(g.measureText(t).width<=max) return t; while(t.length>3&&g.measureText(t+'…').width>max) t=t.slice(0,-1); return t+'…' };
+  const tot=c.groups.reduce((p,q)=>p+q[1],0);
+  // dona de grupos musculares con leyenda a la derecha; si center, lleva los kg movidos al centro
+  const donut=(y0,R,center)=>{ const cx=300, cy=y0+R, lw=R*0.36; let ang=-Math.PI/2;
+    g.beginPath(); g.arc(cx,cy,R-lw/2,0,2*Math.PI); g.lineWidth=lw; g.strokeStyle='rgba(255,255,255,.12)'; g.stroke();
+    c.groups.forEach(([gr,v])=>{ const a2=ang+2*Math.PI*v/tot; g.beginPath(); g.arc(cx,cy,R-lw/2,ang,a2); g.strokeStyle=cssColor(MCOL[gr]||'#888'); g.lineWidth=lw; g.stroke(); ang=a2 });
+    if(center){ txt(fmt(c.kg),cy+14,`800 ${Math.round(R*0.42)}px ${D}`,acc,1,'center',cx); txt('KG MOVIDOS',cy+14+R*0.22,`700 ${Math.round(R*0.15)}px ${D}`,'#fff',4,'center',cx) }
+    else txt('GRUPOS MUSCULARES',y0-24,`700 36px ${D}`,'rgba(255,255,255,.75)',10);
+    const items=c.groups.slice(0,6), lh=Math.min(64,(2*R)/Math.max(items.length,1)); let ly=cy-(items.length*lh)/2+lh*0.65;
+    items.forEach(([gr,v])=>{ g.fillStyle=cssColor(MCOL[gr]||'#888'); g.beginPath(); g.arc(cx+R+70,ly-12,13,0,2*Math.PI); g.fill();
+      txt(gr,ly,`600 36px ${B}`,'#fff',0,'left',cx+R+98); txt(`${fmt(v)} kg · ${fmt(100*v/tot)}%`,ly+32,`500 26px ${B}`,'rgba(255,255,255,.75)',0,'left',cx+R+98); ly+=lh+14 });
+    return 2*R };
+  // medir el bloque para centrarlo y poder escalarlo desde su centro
+  const blockH=()=>{ let h=62+70+(fm==='mixto'?60:245)+(fm==='mixto'?0:72+86)+(fm==='mixto'?520:0)+80+66*((c.maxI?1:0)+(c.maxV?1:0));
+    if(fm==='grupos'&&c.groups.length) h+=90+400; else if(c.top.length) h+=16+70+68*c.top.length; return h+200 };
+  const bh=blockH(), top0=Math.max(140,(H-bh)/2+40), cy=top0+bh/2;
+  g.fillStyle='rgba(0,0,0,.28)'; g.fillRect(0,0,W,H);
+  g.save(); g.translate(W/2,cy); g.scale(k,k); g.translate(-W/2,-cy);
+  const gr=g.createLinearGradient(0,top0-160,0,top0+bh+40); gr.addColorStop(0,'rgba(0,0,0,0)'); gr.addColorStop(.15,'rgba(0,0,0,.55)'); gr.addColorStop(.85,'rgba(0,0,0,.6)'); gr.addColorStop(1,'rgba(0,0,0,0)'); g.fillStyle=gr; g.fillRect(-W,top0-160,3*W,bh+200);
+  let y=top0;
+  // las líneas del encabezado se achican si al agrandar no caben en el ancho visible
+  const vis=Math.min(W-120,W/k-60), fsz=(t,w,px,ls)=>{ g.font=`${w} ${px}px ${D}`; const tw=g.measureText(t).width+ls*t.length; return tw<=vis?px:Math.floor(px*vis/tw) };
+  const hdr=(t,y,w,px,col,ls)=>txt(t,y,`${w} ${fsz(t,w,px,ls)}px ${D}`,col,ls);
+  hdr('TEAM POWEROSSO',y,800,74,'#fff',16); y+=62;
+  hdr(`${String(c.name).toUpperCase()} · ${c.date}`,y,600,38,'rgba(255,255,255,.85)',6); y+=70;
+  hdr(`${String(c.meso).toUpperCase()} · SEMANA ${c.w} · DÍA ${c.d}`,y,700,50,'#fff',8);
+  if(fm==='mixto'&&c.groups.length){ y+=60; y+=donut(y,250,true)+40 }
+  else { y+=245; txt(fmt(c.kg),y,`800 230px ${D}`,acc,2); y+=72; txt('KG MOVIDOS',y,`700 54px ${D}`,acc,18); y+=86 }
+  txt([`${c.series}/${c.seriesPlan} SERIES`,`${c.reps} REPS`,c.min?fmtDur(c.min):''].filter(Boolean).join(' · '),y,`700 50px ${D}`,'#fff',4); y+=80;
+  const pill=(lab,desc)=>{ g.font=`800 32px ${D}`; try{g.letterSpacing='4px'}catch(e){} const pw=g.measureText(lab).width+36; try{g.letterSpacing='0px'}catch(e){} const x0=70;
+    g.fillStyle=acc; g.beginPath(); (g.roundRect?g.roundRect(x0,y-36,pw,48,8):g.rect(x0,y-36,pw,48)); g.fill(); txt(lab,y,`800 32px ${D}`,'#111',4,'left',x0+18);
+    txt(fit(desc,W-x0-pw-90,`500 30px ${B}`),y-2,`500 30px ${B}`,'#fff',0,'left',x0+pw+20); y+=66 };
+  if(c.maxI) pill('MÁX. INTENSIDAD',`${c.maxI.name} · ${fmt(+c.maxI.best.kg,1)} kg × ${c.maxI.best.reps}`);
+  if(c.maxV) pill('MÁX. VOLUMEN',`${c.maxV.name} · ${fmt(+c.maxV.bt.kg,1)} × ${c.maxV.bt.reps} = ${fmt(c.maxV.bt.kg*c.maxV.bt.reps)} kg`);
+  if(fm==='grupos'&&c.groups.length){ y+=90; y+=donut(y,190,false)+30 }
+  else if(c.top.length){ y+=16; txt('MEJORES SERIES POR EJERCICIO',y,`700 36px ${D}`,'rgba(255,255,255,.75)',10); y+=70;
+    c.top.forEach(e=>{ const v=`${fmt(+e.best.kg,1)} kg × ${e.best.reps}`; g.font=`700 46px ${D}`; const vw=g.measureText(v).width; txt(fit(e.name,W-300-vw-40,`500 40px ${B}`),y,`500 40px ${B}`,'#fff',0,'left',150); txt(v,y,`700 46px ${D}`,'#fff',1,'right',W-150); y+=68 }) }
+  const lg=await new Promise(ok=>{ const i=new Image(); i.onload=()=>ok(i); i.onerror=()=>ok(null); i.src=LOGO }); if(lg){ const lw=170, lh=lw*lg.naturalHeight/lg.naturalWidth; g.drawImage(lg,(W-lw)/2,y+10,lw,lh) }
+  g.restore();
+  const blob=await new Promise(ok=>cv.toBlob(ok,'image/png')); if(S.photoUrl) URL.revokeObjectURL(S.photoUrl);
+  S.photoBlob=blob; S.photoUrl=URL.createObjectURL(blob); S.photoName=`powerosso-S${c.w}-D${c.d}-${c.date}.png`; const pv=$('#photo-prev'); if(pv) pv.src=S.photoUrl }
 function vRpeDia(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day);
   return `<div class="eyebrow">Semana ${w.n} · ${dayName(d)}</div><h2 class="h2">¡Sesión terminada!</h2>
   <div class="card"><div style="font-weight:600">¿Qué tan duro fue el entrenamiento de hoy, completo?</div>
@@ -452,11 +476,13 @@ function vRpeDia(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day);
 function vResumen(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day), L=dayLog(w.n,d.n), pm=planMetrics(d), rm=realMetrics(L);
   return `<div class="eyebrow">Semana ${w.n} · ${dayName(d)}</div><h2 class="h2">Resumen · ${title(d.focus)}</h2>
   ${L&&L.rpeDay?`<div class="card row"><span>RPE real del día</span><b class="num" style="font-size:22px">${L.rpeDay}/10</b></div>`:''}
-  ${L&&rm.series?`<div class="card"><div class="eyebrow" style="margin-bottom:6px">Foto de tu entrenamiento</div><div class="small muted" style="margin-bottom:10px">Elige una foto y la app le pone tus datos de hoy: kilos movidos, series, reps, duración, PRs y mejores series. Luego la guardas en tu teléfono o la compartes.</div>
-    ${S.photoUrl?`<img src="${S.photoUrl}" alt="Tu foto con el resumen del entrenamiento" style="width:100%;border-radius:12px;border:1px solid var(--line)">
+  ${L&&rm.series?`<div class="card"><div class="eyebrow" style="margin-bottom:6px">Foto de tu entrenamiento</div><div class="small muted" style="margin-bottom:10px">Toma o elige una foto y la app le pone tus datos de hoy. Luego la guardas en tu teléfono o la compartes.</div>
+    ${S.photoUrl?`<div class="chips" style="margin-bottom:8px">${PHOTO_FMTS.map(([k,l])=>`<button class="chip" data-pfmt="${k}" aria-pressed="${(S.photoFmt||'clasico')===k}">${l}</button>`).join('')}</div>
+    <img id="photo-prev" src="${S.photoUrl}" alt="Tu foto con el resumen del entrenamiento" style="width:100%;border-radius:12px;border:1px solid var(--line)">
+    <label class="f" style="margin-top:10px">Tamaño del contenido <span id="pscale-lbl">${S.photoScale||100}%</span><input type="range" id="photo-scale" min="50" max="115" step="5" value="${S.photoScale||100}" style="width:100%"></label>
     <div class="btns" style="margin-top:10px"><button class="btn goldb sm" data-act="photo-save">Guardar en el teléfono</button>${navigator.canShare?`<button class="btn ghost sm" data-act="photo-share">Compartir</button>`:''}</div>
-    <label class="btn ghost sm" style="margin-top:8px;position:relative;text-align:center">Usar otra foto<input type="file" id="photo-in" accept="image/*" style="position:absolute;inset:0;opacity:0"></label>`
-    :`<label class="btn goldb" style="position:relative;text-align:center">Elegir foto<input type="file" id="photo-in" accept="image/*" style="position:absolute;inset:0;opacity:0"></label>`}</div>`:''}
+    <div class="small muted" style="margin:12px 0 6px">Cambiar la foto</div><div class="btns"><label class="btn goldb sm" style="position:relative;text-align:center">Tomar foto<input type="file" class="photo-in" accept="image/*" capture="environment" style="position:absolute;inset:0;opacity:0"></label><label class="btn ghost sm" style="position:relative;text-align:center">Elegir de la galería<input type="file" class="photo-in" accept="image/*" style="position:absolute;inset:0;opacity:0"></label></div>`
+    :`<div class="btns"><label class="btn goldb sm" style="position:relative;text-align:center">Tomar foto<input type="file" class="photo-in" accept="image/*" capture="environment" style="position:absolute;inset:0;opacity:0"></label><label class="btn ghost sm" style="position:relative;text-align:center">Elegir de la galería<input type="file" class="photo-in" accept="image/*" style="position:absolute;inset:0;opacity:0"></label></div>`}</div>`:''}
   ${kpis(rm,pm,true)}<div class="card"><div class="eyebrow" style="margin-bottom:8px">Grupos musculares de la sesión (kilos levantados)</div>${pieMuscles([[w,d]],true)}</div>${dayTable(w,d,false)}
   <button class="btn" data-act="todash">Ver dashboard de la semana</button><button class="btn ghost" data-act="back">Volver a los días</button>`}
 
@@ -825,7 +851,8 @@ function render(){
     const un=Object.values(DATA.notes).filter(n=>!n.reviewed).length;
     nav.hidden=false; $('#tabs').innerHTML=[['alumnos','Alumnos'],['notas','Observaciones'],['rpe','Plan vs real'],['cmp','Estadísticas']].map(([k,l])=>`<button data-ctab="${k}" aria-current="${S.ctab===k||(k==='alumnos'&&S.ctab==='alumno')}">${l}${k==='notas'&&un?`<span class="badge">${un}</span>`:''}</button>`).join('');
   }
-  const ph=$('#photo-in'); if(ph) ph.addEventListener('change',e=>makePhoto(e.target.files[0]));
+  document.querySelectorAll('.photo-in').forEach(ph=>ph.addEventListener('change',e=>loadPhoto(e.target.files[0])));
+  const psc=$('#photo-scale'); if(psc) psc.addEventListener('input',e=>{ S.photoScale=+e.target.value; $('#pscale-lbl').textContent=S.photoScale+'%'; clearTimeout(S.psT); S.psT=setTimeout(drawPhoto,120) });
   const f=$('#xlsx'); if(f) f.addEventListener('change',e=>readXlsx(e.target.files[0],r=>setPlanilla(S.aid,r)));
   const nf=$('#new-xlsx'); if(nf) nf.addEventListener('change',e=>{const file=e.target.files[0]; if(!file) return; readXlsx(file,r=>{S.pending=r; $('#new-file-lbl').textContent=`Lista: ${Object.keys(r.plans).map(mesoLabel).join(', ')}.`})});
   const im=$('#imp'); if(im) im.addEventListener('change',e=>importBackup(e.target.files[0]));
@@ -891,6 +918,7 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
   if(a.csub){S.csub=a.csub; S.importMsg=null; return render()}
   if(a.wview!==undefined){ S.wview=a.wview==='1'; try{localStorage.setItem('powerosso.wview',S.wview?'1':'')}catch(e){} return render() }
   if(a.editset!==undefined){ S.editSet=S.editSet===+a.editset?null:+a.editset; render(); const i=$('#edit-rpe'); i&&i.focus(); return }
+  if(a.pfmt){ S.photoFmt=a.pfmt; drawPhoto().then(render); return }
   if(a.cset){ S.cset=S.cset===a.cset?null:a.cset; render(); const i=$('#coach-rpe'); i&&i.focus(); return }
   if(a.delnote){ const n=DATA.notes[a.delnote]; if(!n||!confirm(`¿Borrar esta observación de ${DATA.athletes[n.aid]?.name||'el alumno'}${n.tag?` (“${n.tag}”)`:''}? No se puede deshacer.`)) return;
     Promise.resolve(Store.del('notes',a.delnote)).then(()=>flash('Observación borrada.')); return render() }
@@ -902,7 +930,7 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
   if(a.nf!==undefined){S.nfilter=a.nf; return render()}
   if(a.review){const n=DATA.notes[a.review]; Store.put('notes',a.review,{...n,reviewed:!n.reviewed}); return render()}
   if(a.reply){S.replyTo=a.reply; render(); const t=$('#reply-txt'); t&&t.focus(); return}
-  if(a.day){ S.editSet=null; S.photoUrl=null; S.photoBlob=null; const L0=dayLog(S.week,+a.day);
+  if(a.day){ S.editSet=null; S.photoUrl=null; S.photoBlob=null; S.photoImg=null; const L0=dayLog(S.week,+a.day);
     if(L0&&L0.done){ S.day=+a.day; S.toast='';
       if(!confirm('Este día ya está registrado. ¿Quieres repetirlo? Se reemplaza lo anotado antes y queda con la fecha de hoy.')){ S.view='resumen'; return render() }
       const L=ensureLog(); L.sets={}; L.done=false; L.rpeDay=null; L.finishedAt=null; L.trainedAt=Date.now(); saveLog() }
@@ -1023,7 +1051,7 @@ function vAyuda(){ const D=(t,body,open)=>`<details${open?' open':''}><summary>$
   ${D('6. Saltar, volver y series no hechas',`<ul><li><b>Saltar ejercicio</b> sin marcar "Serie hecha" cuenta como que <b>esas series no se hicieron</b>. Tu coach lo ve así en su panel.</li><li>Si hiciste una serie, márcala siempre con "Serie hecha", aunque sea con otro peso o reps.</li><li><b>Anterior</b> te lleva al ejercicio previo para completar series que te faltaron.</li><li>Para <b>corregir el RPE</b> de una serie ya hecha, toca esa serie (S1, S2…) arriba de la tarjeta, escribe el nuevo valor y aprieta ✓.</li><li>Puedes salir y volver: el día queda <b>En curso</b> y retomas donde quedaste.</li></ul>`)}
   ${D('7. Serie Bilbo y 1RM estimado',`<ul><li>En la serie de <b>Press de banca Bilbo</b>, al escribir las reps ves tu <b>1RM estimado</b>: peso × reps × 0,03 + peso.</li><li>Queda guardado y tu coach ve tu avance sesión a sesión.</li></ul>`)}
   ${D('8. Observaciones para tu coach',`<ul><li>En cada ejercicio puedes tocar <b>Dejar observación</b>: elige una opción (Intensidad perfecta, Podría hacer más, Muy pesado, Molestia / dolor, Duda técnica) y escribe un comentario si quieres.</li><li>Tu coach recibe el aviso y te puede responder. Las respuestas aparecen en <b>Mis notas</b>.</li></ul>`)}
-  ${D('9. Terminar la sesión y resumen',`<ul><li>En el resumen puedes elegir una <b>foto</b>: la app le pone tus datos de la sesión (kilos movidos, series, reps, duración, PRs y mejores series) y la guardas en tu teléfono o la compartes.</li><li>En el último ejercicio aparece <b>Terminar sesión</b>. Luego marcas el RPE del día y ves el <b>resumen</b>: kilos levantados, carga, series efectivas, RPE medio y grupos musculares, comparados con el plan.</li></ul>`)}
+  ${D('9. Terminar la sesión y resumen',`<ul><li>En el resumen puedes <b>tomar o elegir una foto</b>: la app le pone tus datos de la sesión (kilos movidos, series, reps, duración, máx. intensidad, máx. volumen y mejores series o grupos musculares). Eliges entre 3 formatos, ajustas el tamaño del contenido y la guardas en tu teléfono o la compartes.</li><li>En el último ejercicio aparece <b>Terminar sesión</b>. Luego marcas el RPE del día y ves el <b>resumen</b>: kilos levantados, carga, series efectivas, RPE medio y grupos musculares, comparados con el plan.</li></ul>`)}
   ${D('10. Dashboard',`<ul><li><b>Kilos levantados / tonelaje</b>: suma de kg × reps de tus series.</li><li><b>Carga</b>: tonelaje × RPE / 10.</li><li><b>Series efectivas</b>: series con RPE 7 o más.</li><li>También ves los grupos musculares trabajados, el tonelaje por día y por levantamiento, y tu peso más alto por semana.</li></ul>`)}
   ${D('11. Tema y avisos',`<ul><li>En <b>Tema</b> eliges el color de la app (dorado, rojo, azul, verde o rosa) y su tonalidad. Se guarda en tu teléfono.</li><li>Ahí también activas y pruebas el aviso del descanso.</li></ul>`)}
   ${D('12. Si algo no funciona',`<ul><li>Revisa tu internet y vuelve a abrir la app.</li><li>Si dice que el link no es válido, pídele a tu coach tu link actual.</li><li>Si no te llegan los avisos: permite las notificaciones de Chrome (o Powerosso) en los ajustes del teléfono y quita el ahorro de batería para Chrome. Con la pantalla bloqueada mucho rato, algunos teléfonos pausan la app.</li></ul>`)}
