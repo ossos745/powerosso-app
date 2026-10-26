@@ -401,18 +401,26 @@ function bilboTxt(kg,reps){ const v=rm1(String(kg).replace(',','.'),reps);
 const draftKey=n=>`${S.aid}|${mesoOf(ATH())}|${S.week}|${S.day}|${S.ex}|${n}`;
 function curDraft(){ const L=ensureLog(), k=draftKey((L.sets[S.ex]||[]).length); if(!S.draft||S.draft.k!==k) S.draft={k}; return S.draft }
 // ---------- foto con el resumen del entrenamiento ----------
-function sessionCard(){ const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day), L=dayLog(w.n,d.n), rm=realMetrics(L), pm=planMetrics(d), a=ATH(); const t0=sessDate(L);
-  const sets=Object.values(L.sets||{}).flat(), reps=sets.reduce((p,s)=>p+(+s.reps||0),0), ts=sets.map(s=>s.t||0).filter(Boolean);
-  const start=L.startedAt||(ts.length?Math.min(...ts):0), end=L.finishedAt||(ts.length?Math.max(...ts):0), min=start&&end>start?Math.round((end-start)/60000):0;
-  const ex=Object.entries(L.sets||{}).map(([i,arr])=>{ const x=d.exercises[i], ok=(arr||[]).filter(s=>+s.kg>0&&+s.reps>0); if(!x||!ok.length) return null;
-    const best=ok.reduce((b,s)=>(+s.kg>+b.kg||(+s.kg===+b.kg&&+s.reps>+b.reps))?s:b), bt=ok.reduce((b,s)=>(+s.kg*+s.reps>+b.kg*+b.reps)?s:b);
-    return {name:title(x.name),lift:LIFT(x.name),best,bt} }).filter(Boolean);
+// datos para la foto: un día (scope 'day') o la semana completa (scope 'week')
+function sessionCard(scope){ const w=wkObj(S.week), a=ATH(), week=scope==='week';
+  const days=(week?w.days:w.days.filter(x=>x.n===S.day)).map(d=>[d,dayLog(w.n,d.n)]).filter(([d,L])=>L&&Object.values(L.sets||{}).some(x=>x&&x.length));
+  const all=days.flatMap(([d,L])=>Object.values(L.sets||{}).flat()), reps=all.reduce((p,s)=>p+(+s.reps||0),0);
+  // RPE real; si no se anotó, el planificado
+  const rpeOf=st=>{ const v=st.rpe!=null&&st.rpe!==''?+st.rpe:(st.rpePlan!=null&&st.rpePlan!==''?+st.rpePlan:NaN); return isFinite(v)&&v>0?v:null };
+  const rv=all.map(rpeOf).filter(v=>v!=null), rpe=rv.length?rv.reduce((p,q)=>p+q,0)/rv.length:null;
+  let min=0; days.forEach(([d,L])=>{ const ts=Object.values(L.sets||{}).flat().map(s=>s.t||0).filter(Boolean); const st=L.startedAt||(ts.length?Math.min(...ts):0), en=L.finishedAt||(ts.length?Math.max(...ts):0); if(st&&en>st) min+=Math.round((en-st)/60000) });
+  const exm={}; days.forEach(([d,L])=>Object.entries(L.sets||{}).forEach(([i,arr])=>{ const x=d.exercises[i]; if(!x) return; const ok=(arr||[]).filter(s=>+s.kg>0&&+s.reps>0); if(!ok.length) return;
+    const k=title(x.name); (exm[k]=exm[k]||{name:k,lift:LIFT(x.name),sets:[]}).sets.push(...ok) }));
+  const ex=Object.values(exm).map(e=>({...e,best:e.sets.reduce((b,s)=>(+s.kg>+b.kg||(+s.kg===+b.kg&&+s.reps>+b.reps))?s:b),bt:e.sets.reduce((b,s)=>(+s.kg*+s.reps>+b.kg*+b.reps)?s:b)}));
   // máx. intensidad = serie con más peso; máx. volumen = serie con más kg × reps
   const maxI=ex.slice().sort((x,y)=>(+y.best.kg-+x.best.kg)||(+y.best.reps-+x.best.reps))[0], maxV=ex.slice().sort((x,y)=>(+y.bt.kg*+y.bt.reps)-(+x.bt.kg*+x.bt.reps))[0];
   const top=ex.slice().sort((x,y)=>(x.lift==='Accesorio')-(y.lift==='Accesorio')||(+y.best.kg*+y.best.reps)-(+x.best.kg*+x.best.reps)).slice(0,4);
-  const grp={}; d.exercises.forEach((x,i)=>((L.sets||{})[i]||[]).forEach(st=>{ const g=muscle(x.name); grp[g]=(grp[g]||0)+(+st.kg||0)*(+st.reps||0) }));
+  const grp={}; days.forEach(([d,L])=>d.exercises.forEach((x,i)=>((L.sets||{})[i]||[]).forEach(st=>{ const g=muscle(x.name); grp[g]=(grp[g]||0)+(+st.kg||0)*(+st.reps||0) })));
   const groups=Object.entries(grp).filter(([g,v])=>v>0).sort((x,y)=>y[1]-x[1]);
-  return {name:a.name,date:fdNum(t0||Date.now()),meso:mesoLabel(L.meso||mesoOf(a)),w:w.n,d:d.n,kg:rm.ton,series:rm.series,seriesPlan:pm.series,reps,min,maxI,maxV,top,groups} }
+  const dts=days.map(([d,L])=>sessDate(L)).filter(Boolean), L0=days[0]&&days[0][1];
+  const date=week?(dts.length?(fdNum(Math.min(...dts))===fdNum(Math.max(...dts))?fdNum(dts[0]):`${fdNum(Math.min(...dts)).slice(0,5)} AL ${fdNum(Math.max(...dts))}`):fdNum(Date.now())):fdNum(sessDate(L0)||Date.now());
+  const seriesPlan=(week?w.days:w.days.filter(x=>x.n===S.day)).reduce((p,d)=>p+planMetrics(d).series,0);
+  return {week,name:a.name,date,meso:mesoLabel((L0&&L0.meso)||mesoOf(a)),w:w.n,d:S.day,nDays:days.length,kg:all.reduce((p,s)=>p+(+s.kg||0)*(+s.reps||0),0),series:all.length,seriesPlan,reps,min,rpe,rpeOf,maxI,maxV,top,groups} }
 const fmtDur=m=>m>=60?`${Math.floor(m/60)} H ${m%60} MIN`:`${m} MIN`;
 const PHOTO_FMTS=[['clasico','Kg movidos + mejores series'],['grupos','Kg movidos + grupos musculares'],['mixto','Grupos musculares + mejores series']];
 const cssColor=c=>{ const m=/^var\((--[^)]+)\)$/.exec(c); return m?getComputedStyle(document.documentElement).getPropertyValue(m[1]).trim()||'#888':c };
@@ -421,7 +429,7 @@ async function loadPhoto(file){ if(!file) return; flash('Preparando tu foto…')
   catch(e){ console.warn(e); flash('No se pudo abrir esa foto. Prueba con otra.',true) } }
 async function drawPhoto(){ const img=S.photoImg; if(!img) return;
   try{ await Promise.all(['800 100px "Barlow Condensed"','700 40px "Barlow Condensed"','500 30px "IBM Plex Sans"'].map(f=>document.fonts.load(f))) }catch(e){}
-  const c=sessionCard(), fm=S.photoFmt||'clasico', k=(S.photoScale||100)/100, W=1080, H=1920, cv=document.createElement('canvas'); cv.width=W; cv.height=H; const g=cv.getContext('2d');
+  const c=sessionCard(S.photoScope), fm=S.photoFmt||'clasico', k=(S.photoScale||100)/100, W=1080, H=1920, cv=document.createElement('canvas'); cv.width=W; cv.height=H; const g=cv.getContext('2d');
   const sc=Math.max(W/img.naturalWidth,H/img.naturalHeight), iw=img.naturalWidth*sc, ih=img.naturalHeight*sc; g.drawImage(img,(W-iw)/2,(H-ih)/2,iw,ih);
   const acc=getComputedStyle(document.documentElement).getPropertyValue('--gold').trim()||'#d4ad5e';
   const D='"Barlow Condensed","Arial Narrow",sans-serif', B='"IBM Plex Sans",system-ui,sans-serif';
@@ -451,22 +459,23 @@ async function drawPhoto(){ const img=S.photoImg; if(!img) return;
   const hdr=(t,y,w,px,col,ls)=>txt(t,y,`${w} ${fsz(t,w,px,ls)}px ${D}`,col,ls);
   hdr('TEAM POWEROSSO',y,800,74,'#fff',16); y+=62;
   hdr(`${String(c.name).toUpperCase()} · ${c.date}`,y,600,38,'rgba(255,255,255,.85)',6); y+=70;
-  hdr(`${String(c.meso).toUpperCase()} · SEMANA ${c.w} · DÍA ${c.d}`,y,700,50,'#fff',8);
+  hdr(`${String(c.meso).toUpperCase()} · SEMANA ${c.w} · ${c.week?`${c.nDays} ${c.nDays===1?'SESIÓN':'SESIONES'}`:'DÍA '+c.d}`,y,700,50,'#fff',8);
   if(fm==='mixto'&&c.groups.length){ y+=60; y+=donut(y,250,true)+40 }
   else { y+=245; txt(fmt(c.kg),y,`800 230px ${D}`,acc,2); y+=72; txt('KG MOVIDOS',y,`700 54px ${D}`,acc,18); y+=86 }
-  txt([`${c.series}/${c.seriesPlan} SERIES`,`${c.reps} REPS`,c.min?fmtDur(c.min):''].filter(Boolean).join(' · '),y,`700 50px ${D}`,'#fff',4); y+=80;
+  hdr([`${c.series}/${c.seriesPlan} SERIES`,`${c.reps} REPS`,c.min?fmtDur(c.min):'',c.rpe!=null?`RPE ${fmt(c.rpe,1)}`:''].filter(Boolean).join(' · '),y,700,50,'#fff',4); y+=80;
   const pill=(lab,desc)=>{ g.font=`800 32px ${D}`; try{g.letterSpacing='4px'}catch(e){} const pw=g.measureText(lab).width+36; try{g.letterSpacing='0px'}catch(e){} const x0=70;
     g.fillStyle=acc; g.beginPath(); (g.roundRect?g.roundRect(x0,y-36,pw,48,8):g.rect(x0,y-36,pw,48)); g.fill(); txt(lab,y,`800 32px ${D}`,'#111',4,'left',x0+18);
     txt(fit(desc,W-x0-pw-90,`500 30px ${B}`),y-2,`500 30px ${B}`,'#fff',0,'left',x0+pw+20); y+=66 };
-  if(c.maxI) pill('MÁX. INTENSIDAD',`${c.maxI.name} · ${fmt(+c.maxI.best.kg,1)} kg × ${c.maxI.best.reps}`);
+  const at=st=>{ const r=c.rpeOf(st); return r!=null?` @${fmt(r,1).replace(/,0$/,'')}`:'' };
+  if(c.maxI) pill('MÁX. INTENSIDAD',`${c.maxI.name} · ${fmt(+c.maxI.best.kg,1)} kg × ${c.maxI.best.reps}${at(c.maxI.best)}`);
   if(c.maxV) pill('MÁX. VOLUMEN',`${c.maxV.name} · ${fmt(+c.maxV.bt.kg,1)} × ${c.maxV.bt.reps} = ${fmt(c.maxV.bt.kg*c.maxV.bt.reps)} kg`);
   if(fm==='grupos'&&c.groups.length){ y+=90; y+=donut(y,190,false)+30 }
   else if(c.top.length){ y+=16; txt('MEJORES SERIES POR EJERCICIO',y,`700 36px ${D}`,'rgba(255,255,255,.75)',10); y+=70;
-    c.top.forEach(e=>{ const v=`${fmt(+e.best.kg,1)} kg × ${e.best.reps}`; g.font=`700 46px ${D}`; const vw=g.measureText(v).width; txt(fit(e.name,W-300-vw-40,`500 40px ${B}`),y,`500 40px ${B}`,'#fff',0,'left',150); txt(v,y,`700 46px ${D}`,'#fff',1,'right',W-150); y+=68 }) }
+    c.top.forEach(e=>{ const v=`${fmt(+e.best.kg,1)} kg × ${e.best.reps}${at(e.best)}`; g.font=`700 46px ${D}`; const vw=g.measureText(v).width; txt(fit(e.name,W-300-vw-40,`500 40px ${B}`),y,`500 40px ${B}`,'#fff',0,'left',150); txt(v,y,`700 46px ${D}`,'#fff',1,'right',W-150); y+=68 }) }
   const lg=S.logoImg||(S.logoImg=await new Promise(ok=>{ const i=new Image(); i.onload=()=>ok(i); i.onerror=()=>ok(null); i.src=LOGO })); if(lg){ const lw=170, lh=lw*lg.naturalHeight/lg.naturalWidth; g.drawImage(lg,(W-lw)/2,y+10,lw,lh) }
   g.restore();
   // vista previa al instante en el canvas; el PNG para guardar se genera un poco después
-  S.photoCv=cv; S.photoName=`powerosso-S${c.w}-D${c.d}-${c.date}.png`; S.photoUrl=S.photoUrl||'1'; paintPrev();
+  S.photoCv=cv; S.photoName=`powerosso-S${c.w}-${c.week?'semana':'D'+c.d}-${c.date.replace(/\W+/g,'-')}.png`; S.photoUrl=S.photoUrl||'1'; paintPrev();
   clearTimeout(S.pbT); S.photoBlob=null; S.photoBlobP=new Promise(ok=>{ S.pbT=setTimeout(()=>cv.toBlob(b=>{ if(S.photoCv===cv) S.photoBlob=b; ok(b) },'image/png'),250) }); return S.photoBlobP }
 function paintPrev(){ const pv=$('#photo-prev'), cv=S.photoCv; if(!pv||!cv) return; if(pv.width!==540){ pv.width=540; pv.height=960 } pv.getContext('2d').drawImage(cv,0,0,540,960) }
 const photoBlob=async()=>S.photoBlob||(S.photoBlobP&&await S.photoBlobP)||null;
@@ -491,20 +500,23 @@ function vRpeDia(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day);
   <div class="small muted" style="margin:4px 0 10px">RPE real del día · 1 = muy fácil · 10 = no podía más. Es opcional y tu coach lo verá.</div>
   <div class="rpe10">${[1,2,3,4,5,6,7,8,9,10].map(v=>`<button data-dayrpe="${v}" aria-pressed="${S.dayRpe===v}">${v}</button>`).join('')}</div>
   <button class="btn" style="margin-top:12px" data-act="rpedia-save">Guardar y ver resumen</button><button class="btn ghost" style="margin-top:8px" data-act="rpedia-skip">Omitir</button></div>`}
-function vResumen(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day), L=dayLog(w.n,d.n), pm=planMetrics(d), rm=realMetrics(L);
-  return `<div class="eyebrow">Semana ${w.n} · ${dayName(d)}</div><h2 class="h2">Resumen · ${title(d.focus)}</h2>
-  ${L&&L.rpeDay?`<div class="card row"><span>RPE real del día</span><b class="num" style="font-size:22px">${L.rpeDay}/10</b></div>`:''}
-  ${L&&rm.series?`<div class="card"><div class="eyebrow" style="margin-bottom:6px">Foto de tu entrenamiento</div><div class="small muted" style="margin-bottom:10px">Toma o elige una foto y la app le pone tus datos de hoy. Luego la guardas en tu teléfono o la compartes.</div>
-    ${S.photoUrl?`<div class="chips" style="margin-bottom:8px">${PHOTO_FMTS.map(([k,l])=>`<button class="chip" data-pfmt="${k}" aria-pressed="${(S.photoFmt||'clasico')===k}">${l}</button>`).join('')}</div>
-    <canvas id="photo-prev" role="img" aria-label="Tu foto con el resumen del entrenamiento" style="width:100%;aspect-ratio:9/16;display:block;border-radius:12px;border:1px solid var(--line);touch-action:none;cursor:grab"></canvas>
+const photoIns=sc=>`<div class="btns"><label class="btn goldb sm" style="position:relative;text-align:center">Tomar foto<input type="file" class="photo-in" data-scope="${sc}" accept="image/*" capture="environment" style="position:absolute;inset:0;opacity:0"></label><label class="btn ghost sm" style="position:relative;text-align:center">Elegir de la galería<input type="file" class="photo-in" data-scope="${sc}" accept="image/*" style="position:absolute;inset:0;opacity:0"></label></div>`;
+// tarjeta de foto para el resumen del día ('day') o el dashboard semanal ('week')
+function photoCardHtml(sc){ const on=S.photoUrl&&S.photoScope===sc;
+  return `<div class="card"><div class="eyebrow" style="margin-bottom:6px">${sc==='week'?'Foto de tu semana':'Foto de tu entrenamiento'}</div><div class="small muted" style="margin-bottom:10px">Toma o elige una foto y la app le pone tus datos ${sc==='week'?'de la semana':'de hoy'}. Luego la guardas en tu teléfono o la compartes.</div>
+    ${on?`<canvas id="photo-prev" role="img" aria-label="Tu foto con el resumen" style="width:100%;aspect-ratio:9/16;display:block;border-radius:12px;border:1px solid var(--line);touch-action:none;cursor:grab"></canvas>
+    <label class="f" style="margin-top:10px">Formato<select id="photo-fmt">${PHOTO_FMTS.map(([k,l])=>`<option value="${k}"${(S.photoFmt||'clasico')===k?' selected':''}>${l}</option>`).join('')}</select></label>
     <div class="small muted" style="margin-top:6px">Arrastra con un dedo para mover el contenido y pellizca con dos para agrandarlo o achicarlo. También puedes usar las barras.</div>
     <label class="f" style="margin-top:10px">Tamaño <span id="pscale-lbl">${S.photoScale||100}%</span><input type="range" id="photo-scale" min="40" max="160" step="1" value="${S.photoScale||100}" style="width:100%"></label>
     <label class="f">Mover a los lados<input type="range" id="photo-x" min="-450" max="450" step="5" value="${S.photoX||0}" style="width:100%"></label>
     <label class="f">Mover arriba ⟷ abajo<input type="range" id="photo-y" min="-850" max="850" step="5" value="${S.photoY||0}" style="width:100%"></label>
     <button class="chip" data-act="photo-reset" style="margin-top:4px">Volver a la posición inicial</button>
     <div class="btns" style="margin-top:10px"><button class="btn goldb sm" data-act="photo-save">Guardar en el teléfono</button>${navigator.canShare?`<button class="btn ghost sm" data-act="photo-share">Compartir</button>`:''}</div>
-    <div class="small muted" style="margin:12px 0 6px">Cambiar la foto</div><div class="btns"><label class="btn goldb sm" style="position:relative;text-align:center">Tomar foto<input type="file" class="photo-in" accept="image/*" capture="environment" style="position:absolute;inset:0;opacity:0"></label><label class="btn ghost sm" style="position:relative;text-align:center">Elegir de la galería<input type="file" class="photo-in" accept="image/*" style="position:absolute;inset:0;opacity:0"></label></div>`
-    :`<div class="btns"><label class="btn goldb sm" style="position:relative;text-align:center">Tomar foto<input type="file" class="photo-in" accept="image/*" capture="environment" style="position:absolute;inset:0;opacity:0"></label><label class="btn ghost sm" style="position:relative;text-align:center">Elegir de la galería<input type="file" class="photo-in" accept="image/*" style="position:absolute;inset:0;opacity:0"></label></div>`}</div>`:''}
+    <div class="small muted" style="margin:12px 0 6px">Cambiar la foto</div>${photoIns(sc)}`:photoIns(sc)}</div>` }
+function vResumen(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day), L=dayLog(w.n,d.n), pm=planMetrics(d), rm=realMetrics(L);
+  return `<div class="eyebrow">Semana ${w.n} · ${dayName(d)}</div><h2 class="h2">Resumen · ${title(d.focus)}</h2>
+  ${L&&L.rpeDay?`<div class="card row"><span>RPE real del día</span><b class="num" style="font-size:22px">${L.rpeDay}/10</b></div>`:''}
+  ${L&&rm.series?photoCardHtml('day'):''}
   ${kpis(rm,pm,true)}<div class="card"><div class="eyebrow" style="margin-bottom:8px">Grupos musculares de la sesión (kilos levantados)</div>${pieMuscles([[w,d]],true)}</div>${dayTable(w,d,false)}
   <button class="btn" data-act="todash">Ver dashboard de la semana</button><button class="btn ghost" data-act="back">Volver a los días</button>`}
 
@@ -545,6 +557,7 @@ function vDash(){const w=wkObj(S.week), rm=weekMetrics(w,true), pm=weekMetrics(w
   const cmax=Math.max(1,...Object.values(cats)); const ccol={'Sentadilla':'var(--red)','Banca':'var(--gold)','Peso muerto':'var(--brown)','Accesorio':'var(--muted)'};
   return `<div class="row"><div><div class="eyebrow">Semana ${w.n}${phase(w)?' · '+title(phase(w)):''}</div><h2 class="h2">Dashboard semanal</h2></div><span class="pill ${done===w.days.length?'ok':'warn'}">${done}/${w.days.length} sesiones</span></div>
   ${kpis(rm,pm)}
+  ${S.mode==='athlete'&&rm.series?photoCardHtml('week'):''}
   <div class="card"><div class="eyebrow" style="margin-bottom:8px">Grupos musculares (tonelaje)</div>
   <div class="chips" style="margin-bottom:10px"><button class="chip" data-pieday="0" aria-pressed="${!pd}">Semana</button>${w.days.map(d=>`<button class="chip" data-pieday="${d.n}" aria-pressed="${pd===d}">${dayShort(d)}</button>`).join('')}</div>${pieMuscles(pieSel)}</div>
   <div class="card"><div class="row"><span class="eyebrow">Tonelaje por día</span><span class="legend"><span><i style="background:var(--surface-2);outline:1px solid var(--line)"></i>Plan</span><span><i style="background:var(--red)"></i>Real</span></span></div>${dayChart(w)}</div>
@@ -873,7 +886,8 @@ function render(){
     const un=Object.values(DATA.notes).filter(n=>!n.reviewed).length;
     nav.hidden=false; $('#tabs').innerHTML=[['alumnos','Alumnos'],['notas','Observaciones'],['rpe','Plan vs real'],['cmp','Estadísticas']].map(([k,l])=>`<button data-ctab="${k}" aria-current="${S.ctab===k||(k==='alumnos'&&S.ctab==='alumno')}">${l}${k==='notas'&&un?`<span class="badge">${un}</span>`:''}</button>`).join('');
   }
-  document.querySelectorAll('.photo-in').forEach(ph=>ph.addEventListener('change',e=>loadPhoto(e.target.files[0])));
+  document.querySelectorAll('.photo-in').forEach(ph=>ph.addEventListener('change',e=>{ if(S.photoScope!==ph.dataset.scope){ S.photoUrl=null; S.photoCv=null; S.photoBlob=null } S.photoScope=ph.dataset.scope; loadPhoto(e.target.files[0]) }));
+  const pf=$('#photo-fmt'); if(pf) pf.addEventListener('change',e=>{ S.photoFmt=e.target.value; drawPhoto() });
   const psc=$('#photo-scale'); if(psc) psc.addEventListener('input',e=>{ S.photoScale=+e.target.value; $('#pscale-lbl').textContent=S.photoScale+'%'; redrawSoon() });
   const pxs=$('#photo-x'); if(pxs) pxs.addEventListener('input',e=>{ S.photoX=+e.target.value; redrawSoon() });
   const pys=$('#photo-y'); if(pys) pys.addEventListener('input',e=>{ S.photoY=+e.target.value; redrawSoon() });
@@ -943,7 +957,6 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
   if(a.csub){S.csub=a.csub; S.importMsg=null; return render()}
   if(a.wview!==undefined){ S.wview=a.wview==='1'; try{localStorage.setItem('powerosso.wview',S.wview?'1':'')}catch(e){} return render() }
   if(a.editset!==undefined){ S.editSet=S.editSet===+a.editset?null:+a.editset; render(); const i=$('#edit-rpe'); i&&i.focus(); return }
-  if(a.pfmt){ S.photoFmt=a.pfmt; drawPhoto().then(render); return }
   if(a.cset){ S.cset=S.cset===a.cset?null:a.cset; render(); const i=$('#coach-rpe'); i&&i.focus(); return }
   if(a.delnote){ const n=DATA.notes[a.delnote]; if(!n||!confirm(`¿Borrar esta observación de ${DATA.athletes[n.aid]?.name||'el alumno'}${n.tag?` (“${n.tag}”)`:''}? No se puede deshacer.`)) return;
     Promise.resolve(Store.del('notes',a.delnote)).then(()=>flash('Observación borrada.')); return render() }
@@ -1077,7 +1090,7 @@ function vAyuda(){ const D=(t,body,open)=>`<details${open?' open':''}><summary>$
   ${D('6. Saltar, volver y series no hechas',`<ul><li><b>Saltar ejercicio</b> sin marcar "Serie hecha" cuenta como que <b>esas series no se hicieron</b>. Tu coach lo ve así en su panel.</li><li>Si hiciste una serie, márcala siempre con "Serie hecha", aunque sea con otro peso o reps.</li><li><b>Anterior</b> te lleva al ejercicio previo para completar series que te faltaron.</li><li>Para <b>corregir el RPE</b> de una serie ya hecha, toca esa serie (S1, S2…) arriba de la tarjeta, escribe el nuevo valor y aprieta ✓.</li><li>Puedes salir y volver: el día queda <b>En curso</b> y retomas donde quedaste.</li></ul>`)}
   ${D('7. Serie Bilbo y 1RM estimado',`<ul><li>En la serie de <b>Press de banca Bilbo</b>, al escribir las reps ves tu <b>1RM estimado</b>: peso × reps × 0,03 + peso.</li><li>Queda guardado y tu coach ve tu avance sesión a sesión.</li></ul>`)}
   ${D('8. Observaciones para tu coach',`<ul><li>En cada ejercicio puedes tocar <b>Dejar observación</b>: elige una opción (Intensidad perfecta, Podría hacer más, Muy pesado, Molestia / dolor, Duda técnica) y escribe un comentario si quieres.</li><li>Tu coach recibe el aviso y te puede responder. Las respuestas aparecen en <b>Mis notas</b>.</li></ul>`)}
-  ${D('9. Terminar la sesión y resumen',`<ul><li>En el resumen puedes <b>tomar o elegir una foto</b>: la app le pone tus datos de la sesión (kilos movidos, series, reps, duración, máx. intensidad, máx. volumen y mejores series o grupos musculares). Eliges entre 3 formatos, mueves el contenido arrastrando con un dedo y lo agrandas o achicas pellizcando con dos (o con las barras), y la guardas en tu teléfono o la compartes.</li><li>En el último ejercicio aparece <b>Terminar sesión</b>. Luego marcas el RPE del día y ves el <b>resumen</b>: kilos levantados, carga, series efectivas, RPE medio y grupos musculares, comparados con el plan.</li></ul>`)}
+  ${D('9. Terminar la sesión y resumen',`<ul><li>En el resumen puedes <b>tomar o elegir una foto</b>: la app le pone tus datos de la sesión (kilos movidos, series, reps, duración, máx. intensidad, máx. volumen y mejores series o grupos musculares). Eliges el formato en el desplegable bajo la foto, mueves el contenido arrastrando con un dedo y lo agrandas o achicas pellizcando con dos (o con las barras), y la guardas en tu teléfono o la compartes. El RPE que aparece (promedio y @ en cada serie) es el que anotaste; si no lo anotaste, el planificado. En el <b>Dashboard</b> también puedes hacer una foto con los datos de toda la semana.</li><li>En el último ejercicio aparece <b>Terminar sesión</b>. Luego marcas el RPE del día y ves el <b>resumen</b>: kilos levantados, carga, series efectivas, RPE medio y grupos musculares, comparados con el plan.</li></ul>`)}
   ${D('10. Dashboard',`<ul><li><b>Kilos levantados / tonelaje</b>: suma de kg × reps de tus series.</li><li><b>Carga</b>: tonelaje × RPE / 10.</li><li><b>Series efectivas</b>: series con RPE 7 o más.</li><li>También ves los grupos musculares trabajados, el tonelaje por día y por levantamiento, y tu peso más alto por semana.</li></ul>`)}
   ${D('11. Tema y avisos',`<ul><li>En <b>Tema</b> eliges el color de la app (dorado, rojo, azul, verde o rosa) y su tonalidad. Se guarda en tu teléfono.</li><li>Ahí también activas y pruebas el aviso del descanso.</li></ul>`)}
   ${D('12. Si algo no funciona',`<ul><li>Revisa tu internet y vuelve a abrir la app.</li><li>Si dice que el link no es válido, pídele a tu coach tu link actual.</li><li>Si no te llegan los avisos: permite las notificaciones de Chrome (o Powerosso) en los ajustes del teléfono y quita el ahorro de batería para Chrome. Con la pantalla bloqueada mucho rato, algunos teléfonos pausan la app.</li></ul>`)}
