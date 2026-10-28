@@ -472,7 +472,7 @@ function vSesion(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day), L=ensur
     <div class="spec"><div><b>${x.sets}</b><span>Series</span></div><div><b>${esc(x.reps||'—')}</b><span>Reps</span></div><div><b>${esc(x.rpe??'—')}</b><span>RPE</span></div><div><b>${fmtRest(x.rest.max)}</b><span>Descanso</span></div></div>
   </div>
   ${toastHtml()}
-  ${done.length?`<div class="setlog">${done.map((s,i)=>`<button class="setchip" data-editset="${i}" aria-pressed="${S.editSet===i}">S${i+1} · ${s.kg!=null&&s.kg!==''?fmt(+s.kg,1)+'×':''}${s.reps}${s.rpe!=null&&s.rpe!==''?' @'+fmt(+s.rpe,1):' · sin RPE'}${isBilbo(x)&&rm1(s.kg,s.reps)?' · 1RM '+fmt(rm1(s.kg,s.reps),1):''} ✎</button>`).join('')}</div>
+  ${done.length?`<div class="setlog">${done.map((s,i)=>`<button class="setchip" data-editset="${i}" aria-pressed="${S.editSet===i}">S${i+1} · ${s.kg!=null&&s.kg!==''?fmt(+s.kg,1)+'×':''}${s.reps}${s.rpe!=null&&s.rpe!==''?' @'+fmt(+s.rpe,1):' · sin RPE'}${isBilbo(x)&&rm1(s.kg,s.reps)?' · 1RM '+fmt(rm1(s.kg,s.reps),1):''}${s.pr?' · PR ✓ 1RM '+fmt(s.pr.rm1,1):''} ✎</button>`).join('')}</div>
   ${S.editSet!=null&&done[S.editSet]?`<div class="rpebox plain"><div class="q">Modificar RPE · serie ${S.editSet+1} <span class="muted small">(${done[S.editSet].kg!=null&&done[S.editSet].kg!==''?fmt(+done[S.editSet].kg,1)+' kg × ':''}${done[S.editSet].reps} reps)</span></div>
   <div class="rpein"><input id="edit-rpe" type="text" inputmode="decimal" autocomplete="off" placeholder="—" value="${hasR(done[S.editSet].rpe)?esc(done[S.editSet].rpe):''}"><button class="okbtn" data-act="editset-ok" aria-label="Guardar RPE">✓</button></div>
   <div class="row" style="margin-top:8px"><span class="small muted">Deja vacío y aprieta ✓ para quitar el RPE.</span><button class="chip" data-act="editset-cancel">Cancelar</button></div></div>`
@@ -492,6 +492,9 @@ function vSesion(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day), L=ensur
 
 function bilboTxt(kg,reps){ const v=rm1(String(kg).replace(',','.'),reps);
   return v?`<div class="small muted">1RM estimado (peso × reps × 0,03 + peso)</div><b class="num">${fmt(v,1)} kg</b>`:`<div class="small muted">Serie Bilbo: escribe las reps que hiciste y verás tu 1RM estimado.</div>`}
+// serie PR: nombre que empieza con "PR"; se logra si el peso y las reps anotadas llegan a lo pedido
+const isPR=x=>/^\W*PR\b/.test(normU(x.name));
+const prHit=(x,kg,reps)=>isPR(x)&&x.kg!=null&&kg>=x.kg-0.001&&reps>=(parseInt(x.reps)||x.repsN||1);
 const draftKey=n=>`${S.aid}|${mesoOf(ATH())}|${S.week}|${S.day}|${S.ex}|${n}`;
 function curDraft(){ const L=ensureLog(), k=draftKey((L.sets[S.ex]||[]).length); if(!S.draft||S.draft.k!==k) S.draft={k}; return S.draft }
 // ---------- foto con el resumen del entrenamiento ----------
@@ -1102,11 +1105,14 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
       if(isNaN(reps)) return flash('Anota cuántas repeticiones hiciste.',true); S.editSet=null;
       const dr0=curDraft(), rr=(($('#cur-rpe')||{}).value??dr0.rpe??'').toString().replace(',','.').trim(), rv=parseFloat(rr);
       if(rr!==''&&!(rv>=1&&rv<=10)) return flash('El RPE real va del 1 al 10.',true);
-      const arr=(L.sets[S.ex]=L.sets[S.ex]||[]); S.draft=null; arr.push({kg:isNaN(kg)?null:kg,reps,rpe:rr===''?null:rv,rpePlan:x.rpeN||null,t:Date.now(),...(isBilbo(x)?{bilbo:true,rm1:rm1(kg,reps)}:{})}); L.trainedAt=Date.now(); saveLog();
+      // serie PR (el nombre empieza con "PR"): si se logró el peso y las reps pedidas, se guarda dónde anotar el 1RM en el Excel (lo hace el .bat)
+      const prOk=prHit(x,kg,reps), pr=prOk?{pr:{t:Date.now(),file:ATH().file||null,sheet:PLAN().sheet||null,row:x.row||null,kg,reps,rm1:Math.round(rm1(kg,reps)*10)/10,meso:mesoOf(ATH()),w:S.week,d:S.day,ex:x.name}}:{};
+      const arr=(L.sets[S.ex]=L.sets[S.ex]||[]); S.draft=null; arr.push({...pr,kg:isNaN(kg)?null:kg,reps,rpe:rr===''?null:rv,rpePlan:x.rpeN||null,t:Date.now(),...(isBilbo(x)?{bilbo:true,rm1:rm1(kg,reps)}:{})}); L.trainedAt=Date.now(); saveLog();
+      // serie PR (el nombre empieza con "PR"): si se logró el peso y las reps pedidas, se guarda dónde anotar el 1RM en el Excel (lo hace el .bat)
       const setRef={ex:S.ex,i:arr.length-1,name:x.name,n:arr.length,plan:x.rpeN};
       // ejercicio terminado: pasa solo al siguiente (el descanso sigue corriendo)
       if(arr.length>=x.sets&&d.exercises[S.ex+1]){ S.ex++; S.obsOpen=false }
-      S.toast=''; askNotif(); render(); return startTimer(x.rest,nextLabel(),setRef) }
+      S.toast=prOk?`¡PR logrado! ${fmt(kg,1)} kg × ${reps} · 1RM estimado ${fmt(rm1(kg,reps),1)} kg. Se anotará en tu Excel.`:''; S.toastErr=false; askNotif(); render(); return startTimer(x.rest,nextLabel(),setRef) }
     case 'nextex': case 'skip': S.editSet=null; S.ex=Math.min(S.ex+1,d.exercises.length-1); S.toast=''; S.obsOpen=false; return render();
     case 'prevex': S.editSet=null; S.ex=Math.max(0,S.ex-1); S.toast=''; S.obsOpen=false; return render();
     case 'finish': { const L=ensureLog(); L.done=true; L.finishedAt=Date.now(); L.trainedAt=L.finishedAt; saveLog(); stopTimer(); S.dayRpe=L.rpeDay??null; S.view='rpedia'; S.toast=''; return render() }

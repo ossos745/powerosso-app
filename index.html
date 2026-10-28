@@ -261,7 +261,10 @@ function parsePlan(rows, sheetName, firstRow){
     if (!week){ if(!plan.title) plan.title=b; else if(!plan.details) plan.details=b; return; }
     if (!day || !cols || /^OBJETIVO/.test(B)) return;
     const g = k => cols[k]===undefined?undefined:r[cols[k]];
-    const kgRaw=g('kg'), setsRaw=g('sets'), repsRaw=g('reps'), rpeRaw=g('rpe'), restRaw=g('rest');
+    // RPE sobre 10 en la planilla: 10,5 y 11 se muestran como 9; 11,5 o más como 10
+    const rpeFix=v=>v>10?(v<=11?9:10):v;
+    const rpeIn=g('rpe'), rpeRaw=typeof rpeIn==='number'?rpeFix(rpeIn):(S(rpeIn)?S(rpeIn).replace(/\d+(?:[.,]\d+)?/g,m=>{ const v=parseFloat(m.replace(',','.')); return v>10?String(rpeFix(v)):m }):rpeIn);
+    const kgRaw=g('kg'), setsRaw=g('sets'), repsRaw=g('reps'), restRaw=g('rest');
     const ex = {name:b, row:rowN, kg: typeof kgRaw==='number'?kgRaw:null, load: typeof kgRaw==='number'?null:(S(kgRaw)||null),
       sets: typeof setsRaw==='number'?setsRaw:(parseInt(setsRaw)||null), reps:S(repsRaw), repsN:repsNum(repsRaw),
       rpe: typeof rpeRaw==='number'?rpeRaw:(S(rpeRaw)||null), rpeN: typeof rpeRaw==='number'?rpeRaw:(parseFloat(S(rpeRaw).split('-').pop().replace(',','.'))||null),
@@ -543,7 +546,7 @@ function vSesion(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day), L=ensur
     <div class="spec"><div><b>${x.sets}</b><span>Series</span></div><div><b>${esc(x.reps||'—')}</b><span>Reps</span></div><div><b>${esc(x.rpe??'—')}</b><span>RPE</span></div><div><b>${fmtRest(x.rest.max)}</b><span>Descanso</span></div></div>
   </div>
   ${toastHtml()}
-  ${done.length?`<div class="setlog">${done.map((s,i)=>`<button class="setchip" data-editset="${i}" aria-pressed="${S.editSet===i}">S${i+1} · ${s.kg!=null&&s.kg!==''?fmt(+s.kg,1)+'×':''}${s.reps}${s.rpe!=null&&s.rpe!==''?' @'+fmt(+s.rpe,1):' · sin RPE'}${isBilbo(x)&&rm1(s.kg,s.reps)?' · 1RM '+fmt(rm1(s.kg,s.reps),1):''} ✎</button>`).join('')}</div>
+  ${done.length?`<div class="setlog">${done.map((s,i)=>`<button class="setchip" data-editset="${i}" aria-pressed="${S.editSet===i}">S${i+1} · ${s.kg!=null&&s.kg!==''?fmt(+s.kg,1)+'×':''}${s.reps}${s.rpe!=null&&s.rpe!==''?' @'+fmt(+s.rpe,1):' · sin RPE'}${isBilbo(x)&&rm1(s.kg,s.reps)?' · 1RM '+fmt(rm1(s.kg,s.reps),1):''}${s.pr?' · PR ✓ 1RM '+fmt(s.pr.rm1,1):''} ✎</button>`).join('')}</div>
   ${S.editSet!=null&&done[S.editSet]?`<div class="rpebox plain"><div class="q">Modificar RPE · serie ${S.editSet+1} <span class="muted small">(${done[S.editSet].kg!=null&&done[S.editSet].kg!==''?fmt(+done[S.editSet].kg,1)+' kg × ':''}${done[S.editSet].reps} reps)</span></div>
   <div class="rpein"><input id="edit-rpe" type="text" inputmode="decimal" autocomplete="off" placeholder="—" value="${hasR(done[S.editSet].rpe)?esc(done[S.editSet].rpe):''}"><button class="okbtn" data-act="editset-ok" aria-label="Guardar RPE">✓</button></div>
   <div class="row" style="margin-top:8px"><span class="small muted">Deja vacío y aprieta ✓ para quitar el RPE.</span><button class="chip" data-act="editset-cancel">Cancelar</button></div></div>`
@@ -563,6 +566,9 @@ function vSesion(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day), L=ensur
 
 function bilboTxt(kg,reps){ const v=rm1(String(kg).replace(',','.'),reps);
   return v?`<div class="small muted">1RM estimado (peso × reps × 0,03 + peso)</div><b class="num">${fmt(v,1)} kg</b>`:`<div class="small muted">Serie Bilbo: escribe las reps que hiciste y verás tu 1RM estimado.</div>`}
+// serie PR: nombre que empieza con "PR"; se logra si el peso y las reps anotadas llegan a lo pedido
+const isPR=x=>/^\W*PR\b/.test(normU(x.name));
+const prHit=(x,kg,reps)=>isPR(x)&&x.kg!=null&&kg>=x.kg-0.001&&reps>=(parseInt(x.reps)||x.repsN||1);
 const draftKey=n=>`${S.aid}|${mesoOf(ATH())}|${S.week}|${S.day}|${S.ex}|${n}`;
 function curDraft(){ const L=ensureLog(), k=draftKey((L.sets[S.ex]||[]).length); if(!S.draft||S.draft.k!==k) S.draft={k}; return S.draft }
 // ---------- foto con el resumen del entrenamiento ----------
@@ -1114,7 +1120,7 @@ function downloadBat(){ const coach=Object.values(DATA.athletes).find(a=>a.coach
   flash('Guarda el .bat donde quieras y ábrelo con doble clic cuando cambies una planilla.') }
 const BAT=`<# :
 @echo off
-rem Powerosso: sube todas las planillas de la carpeta Alumnos a la app y guarda un respaldo.
+rem Powerosso: anota los PR en los Excel, sube las planillas de la carpeta Alumnos a la app y guarda un respaldo.
 rem Doble clic para ejecutar. Las lineas de abajo son PowerShell (viene incluido en Windows).
 powershell -NoProfile -ExecutionPolicy Bypass -Command "iex ([IO.File]::ReadAllText('%~f0'))"
 echo.
@@ -1143,6 +1149,53 @@ Write-Host ''
 if (-not (Test-Path -LiteralPath $Carpeta)) { Write-Host '  No encuentro la carpeta. Revisa la ruta en este archivo (linea $Carpeta).' -ForegroundColor Red; return }
 $archivos = Get-ChildItem -LiteralPath $Carpeta -File | Where-Object { $_.Extension -match '^\\.xls[xm]$' -and $_.Name -notlike '~$*' }
 if (-not $archivos) { Write-Host '  No hay planillas .xlsx en la carpeta.'; return }
+# ---- PR: anota el 1RM estimado en la columna "SERIES X REPES REALIZADAS" de la fila del ejercicio ----
+function Norm($t) { if ($null -eq $t) { return '' } return (([string]$t).ToUpper().Replace([string][char]0xD7, 'X') -replace '[\\s\\.]', '') }
+$prs = @()
+try {
+  $d = (Llamar 'pw_load' @{ p_token = $Token }).Content | ConvertFrom-Json
+  foreach ($lp in $d.logs.PSObject.Properties) {
+    $L = $lp.Value; if (-not $L.sets) { continue }
+    foreach ($ep in $L.sets.PSObject.Properties) { foreach ($st in @($ep.Value)) {
+      if ($st -and $st.pr -and $st.pr.file -and $st.pr.sheet -and $st.pr.row) { $prs += $st.pr } } }
+  }
+} catch { Write-Host ('  No se pudieron leer los PR de la app: ' + $_.Exception.Message) -ForegroundColor Red }
+if ($prs.Count) {
+  Write-Host "  PR logrados en la app: $($prs.Count). Anotando el 1RM en los Excel..."
+  $xlNuevo = $null
+  $prs = @($prs | Sort-Object { [double]$_.t })   # si un dia se repitio, el ultimo PR queda escrito
+  foreach ($grupo in ($prs | Group-Object { $_.file })) {
+    $f = $archivos | Where-Object { $_.Name -eq $grupo.Name } | Select-Object -First 1
+    if (-not $f) { Write-Host ('  PR: no encuentro ' + $grupo.Name + ' en la carpeta') -ForegroundColor Red; continue }
+    $wb = $null; $propio = $false; $cambios = 0
+    try {
+      # si el Excel ya esta abierto, se usa ese mismo; si no, se abre en segundo plano
+      try { $xl = [Runtime.InteropServices.Marshal]::GetActiveObject('Excel.Application'); foreach ($w in $xl.Workbooks) { if ($w.Name -eq $f.Name) { $wb = $w } } } catch {}
+      if (-not $wb) {
+        if (-not $xlNuevo) { $xlNuevo = New-Object -ComObject Excel.Application; $xlNuevo.Visible = $false; $xlNuevo.DisplayAlerts = $false }
+        $wb = $xlNuevo.Workbooks.Open($f.FullName); $propio = $true
+      }
+      foreach ($p in $grupo.Group) {
+        $ws = $wb.Worksheets.Item([string]$p.sheet); $fila = [int]$p.row
+        $u = $ws.UsedRange; $c1 = $u.Column; $c2 = [Math]::Max($u.Column + $u.Columns.Count - 1, $c1 + 1); $col = 0
+        # busca la cabecera hacia arriba desde la fila del ejercicio (la de su tabla del dia)
+        for ($r = $fila; $r -ge [Math]::Max(1, $fila - 120) -and -not $col; $r--) {
+          $vals = $ws.Range($ws.Cells.Item($r, $c1), $ws.Cells.Item($r, $c2)).Value2
+          for ($c = 1; $c -le ($c2 - $c1 + 1); $c++) { if ((Norm $vals[1, $c]) -match '^SERIESXREP(E|ETICIONE)?SREALIZADAS$') { $col = $c1 + $c - 1; break } }
+        }
+        if (-not $col) { Write-Host ('  PR: no encuentro la columna "Series x repes realizadas" en ' + $f.Name + ' / ' + $p.sheet + ' (fila ' + $fila + ')') -ForegroundColor Red; continue }
+        $celda = $ws.Cells.Item($fila, $col); $v = [double]$p.rm1
+        if ($celda.Value2 -ne $v) { $celda.Value2 = $v; $cambios++ }
+        Write-Host ('  PR     ' + $f.Name + ' / ' + $p.sheet + ' fila ' + $fila + ': ' + $p.ex + ' ' + $p.kg + ' x ' + $p.reps + '  ->  1RM ' + $v) -ForegroundColor Cyan
+      }
+      if ($cambios) { $wb.Save() }
+    } catch {
+      Write-Host ('  PR: no se pudo escribir en ' + $f.Name + ': ' + $_.Exception.Message + '  (si esta abierto en otro programa, cierralo y vuelve a correr)') -ForegroundColor Red
+    } finally { if ($propio -and $wb) { $wb.Close($false) } }
+  }
+  if ($xlNuevo) { $xlNuevo.Quit(); [void][Runtime.InteropServices.Marshal]::ReleaseComObject($xlNuevo) }
+  Write-Host ''
+}
 $ok = 0
 foreach ($f in $archivos) {
   try {
@@ -1232,11 +1285,14 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
       if(isNaN(reps)) return flash('Anota cuántas repeticiones hiciste.',true); S.editSet=null;
       const dr0=curDraft(), rr=(($('#cur-rpe')||{}).value??dr0.rpe??'').toString().replace(',','.').trim(), rv=parseFloat(rr);
       if(rr!==''&&!(rv>=1&&rv<=10)) return flash('El RPE real va del 1 al 10.',true);
-      const arr=(L.sets[S.ex]=L.sets[S.ex]||[]); S.draft=null; arr.push({kg:isNaN(kg)?null:kg,reps,rpe:rr===''?null:rv,rpePlan:x.rpeN||null,t:Date.now(),...(isBilbo(x)?{bilbo:true,rm1:rm1(kg,reps)}:{})}); L.trainedAt=Date.now(); saveLog();
+      // serie PR (el nombre empieza con "PR"): si se logró el peso y las reps pedidas, se guarda dónde anotar el 1RM en el Excel (lo hace el .bat)
+      const prOk=prHit(x,kg,reps), pr=prOk?{pr:{t:Date.now(),file:ATH().file||null,sheet:PLAN().sheet||null,row:x.row||null,kg,reps,rm1:Math.round(rm1(kg,reps)*10)/10,meso:mesoOf(ATH()),w:S.week,d:S.day,ex:x.name}}:{};
+      const arr=(L.sets[S.ex]=L.sets[S.ex]||[]); S.draft=null; arr.push({...pr,kg:isNaN(kg)?null:kg,reps,rpe:rr===''?null:rv,rpePlan:x.rpeN||null,t:Date.now(),...(isBilbo(x)?{bilbo:true,rm1:rm1(kg,reps)}:{})}); L.trainedAt=Date.now(); saveLog();
+      // serie PR (el nombre empieza con "PR"): si se logró el peso y las reps pedidas, se guarda dónde anotar el 1RM en el Excel (lo hace el .bat)
       const setRef={ex:S.ex,i:arr.length-1,name:x.name,n:arr.length,plan:x.rpeN};
       // ejercicio terminado: pasa solo al siguiente (el descanso sigue corriendo)
       if(arr.length>=x.sets&&d.exercises[S.ex+1]){ S.ex++; S.obsOpen=false }
-      S.toast=''; askNotif(); render(); return startTimer(x.rest,nextLabel(),setRef) }
+      S.toast=prOk?`¡PR logrado! ${fmt(kg,1)} kg × ${reps} · 1RM estimado ${fmt(rm1(kg,reps),1)} kg. Se anotará en tu Excel.`:''; S.toastErr=false; askNotif(); render(); return startTimer(x.rest,nextLabel(),setRef) }
     case 'nextex': case 'skip': S.editSet=null; S.ex=Math.min(S.ex+1,d.exercises.length-1); S.toast=''; S.obsOpen=false; return render();
     case 'prevex': S.editSet=null; S.ex=Math.max(0,S.ex-1); S.toast=''; S.obsOpen=false; return render();
     case 'finish': { const L=ensureLog(); L.done=true; L.finishedAt=Date.now(); L.trainedAt=L.finishedAt; saveLog(); stopTimer(); S.dayRpe=L.rpeDay??null; S.view='rpedia'; S.toast=''; return render() }

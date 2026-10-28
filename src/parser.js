@@ -43,7 +43,10 @@ function parsePlan(rows, sheetName, firstRow){
     if (!week){ if(!plan.title) plan.title=b; else if(!plan.details) plan.details=b; return; }
     if (!day || !cols || /^OBJETIVO/.test(B)) return;
     const g = k => cols[k]===undefined?undefined:r[cols[k]];
-    const kgRaw=g('kg'), setsRaw=g('sets'), repsRaw=g('reps'), rpeRaw=g('rpe'), restRaw=g('rest');
+    // RPE sobre 10 en la planilla: 10,5 y 11 se muestran como 9; 11,5 o más como 10
+    const rpeFix=v=>v>10?(v<=11?9:10):v;
+    const rpeIn=g('rpe'), rpeRaw=typeof rpeIn==='number'?rpeFix(rpeIn):(S(rpeIn)?S(rpeIn).replace(/\d+(?:[.,]\d+)?/g,m=>{ const v=parseFloat(m.replace(',','.')); return v>10?String(rpeFix(v)):m }):rpeIn);
+    const kgRaw=g('kg'), setsRaw=g('sets'), repsRaw=g('reps'), restRaw=g('rest');
     const ex = {name:b, row:rowN, kg: typeof kgRaw==='number'?kgRaw:null, load: typeof kgRaw==='number'?null:(S(kgRaw)||null),
       sets: typeof setsRaw==='number'?setsRaw:(parseInt(setsRaw)||null), reps:S(repsRaw), repsN:repsNum(repsRaw),
       rpe: typeof rpeRaw==='number'?rpeRaw:(S(rpeRaw)||null), rpeN: typeof rpeRaw==='number'?rpeRaw:(parseFloat(S(rpeRaw).split('-').pop().replace(',','.'))||null),
