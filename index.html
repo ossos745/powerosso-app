@@ -589,7 +589,7 @@ function sessionCard(scope){ const w=wkObj(S.week), a=ATH(), week=scope==='week'
 const fmtDur=m=>m>=60?`${Math.floor(m/60)} H ${m%60} MIN`:`${m} MIN`;
 // en pantallas táctiles la foto se ajusta con los dedos (sin barras)
 try{ if(navigator.maxTouchPoints>0||'ontouchstart' in window) document.documentElement.classList.add('touch') }catch(e){}
-const PHOTO_FMTS=[['clasico','Kg movidos + mejores series'],['grupos','Kg movidos + grupos musculares'],['mixto','Grupos musculares + mejores series']];
+const PHOTO_FMTS=[['clasico','Kg movidos + mejores series'],['grupos','Kg movidos + grupos musculares'],['mixto','Grupos musculares + mejores series'],['minimal','Minimalista']];
 const cssColor=c=>{ const m=/^var\((--[^)]+)\)$/.exec(c); return m?getComputedStyle(document.documentElement).getPropertyValue(m[1]).trim()||'#888':c };
 async function loadPhoto(file){ if(!file) return; flash('Preparando tu foto…');
   try{ const img=await new Promise((ok,ko)=>{ const i=new Image(); i.onload=()=>ok(i); i.onerror=ko; i.src=URL.createObjectURL(file) }); S.photoImg=img; S.photoScale=S.photoScale||100; S.photoFmt=S.photoFmt||'clasico'; await drawPhoto(); S.toast=''; render() }
@@ -616,32 +616,43 @@ async function drawPhoto(){ const img=S.photoImg; if(!img) return;
       txt(fit(gr,W-(cx+R+98)-30,`600 36px ${B}`),ly,`600 36px ${B}`,'#fff',0,'left',cx+R+98); txt(`${fmt(v)} kg · ${fmt(100*v/tot)}%`,ly+32,`500 26px ${B}`,'rgba(255,255,255,.75)',0,'left',cx+R+98); ly+=LH });
     return hh };
   // medir el bloque para centrarlo y poder escalarlo desde su centro
-  const blockH=()=>{ let h=62+70+(fm==='mixto'?60:245)+(fm==='mixto'?0:72+86)+(fm==='mixto'?donutH(250)+40:0)+80+66*((c.maxI?1:0)+(c.maxV?1:0));
+  const blockH=()=>{ if(fm==='minimal') return 50+42+230+60+70+(c.maxI?56:0)+150; let h=62+58+64+(fm==='mixto'?60:245)+(fm==='mixto'?0:72+86)+(fm==='mixto'?donutH(250)+40:0)+80+66*((c.maxI?1:0)+(c.maxV?1:0));
     if(fm==='grupos'&&c.groups.length) h+=90+donutH(190)+30; else if(c.top.length) h+=16+70+68*c.top.length; return h+200 };
   const bh=blockH(), top0=Math.max(140,(H-bh)/2+40), cy=top0+bh/2;
   g.fillStyle='rgba(0,0,0,.28)'; g.fillRect(0,0,W,H);
   const ox=S.photoX||0, oy=S.photoY||0; g.save(); g.translate(W/2+ox,cy+oy); g.scale(k,k); g.translate(-W/2,-cy);
-  const gr=g.createLinearGradient(0,top0-160,0,top0+bh+40); gr.addColorStop(0,'rgba(0,0,0,0)'); gr.addColorStop(.15,'rgba(0,0,0,.55)'); gr.addColorStop(.85,'rgba(0,0,0,.6)'); gr.addColorStop(1,'rgba(0,0,0,0)'); g.fillStyle=gr; g.fillRect(-W,top0-160,3*W,bh+200);
+  const sh=fm==='minimal'?.4:.58, gr=g.createLinearGradient(0,top0-160,0,top0+bh+40); gr.addColorStop(0,'rgba(0,0,0,0)'); gr.addColorStop(.15,`rgba(0,0,0,${sh})`); gr.addColorStop(.85,`rgba(0,0,0,${sh})`); gr.addColorStop(1,'rgba(0,0,0,0)'); g.fillStyle=gr; g.fillRect(-W,top0-160,3*W,bh+200);
   let y=top0;
   // las líneas del encabezado se achican si al agrandar no caben en el ancho visible
   const vis=Math.min(W-120,W/k-60), fsz=(t,w,px,ls)=>{ g.font=`${w} ${px}px ${D}`; const tw=g.measureText(t).width+ls*t.length; return tw<=vis?px:Math.floor(px*vis/tw) };
   const hdr=(t,y,w,px,col,ls)=>txt(t,y,`${w} ${fsz(t,w,px,ls)}px ${D}`,col,ls);
-  hdr('TEAM POWEROSSO',y,800,74,'#fff',16); y+=62;
-  hdr(`${String(c.name).toUpperCase()} · ${c.date}`,y,600,38,'rgba(255,255,255,.85)',6); y+=70;
-  hdr(`${String(c.meso).toUpperCase()} · SEMANA ${c.w} · ${c.week?`${c.nDays} ${c.nDays===1?'SESIÓN':'SESIONES'}`:'DÍA '+c.d}`,y,700,50,'#fff',8);
+  const at=st=>{ const r=c.rpeOf(st); return r!=null?` @${fmt(r,1).replace(/,0$/,'')}`:'' };
+  const sesTxt=`${String(c.meso).toUpperCase()} · SEMANA ${c.w} · ${c.week?`${c.nDays} ${c.nDays===1?'SESIÓN':'SESIONES'}`:'DÍA '+c.d}`;
+  const lg=S.logoImg||(S.logoImg=await new Promise(ok=>{ const i=new Image(); i.onload=()=>ok(i); i.onerror=()=>ok(null); i.src=LOGO }));
+  if(fm==='minimal'){ // lo justo: quién, cuándo, kg movidos, series/reps/RPE y la serie más pesada
+    hdr(String(c.name).toUpperCase(),y,800,64,'#fff',10); y+=50;
+    hdr(`${c.date} · ${sesTxt}`,y,600,30,'rgba(255,255,255,.75)',5); y+=230;
+    txt(fmt(c.kg),y,`800 200px ${D}`,acc,2); y+=60; txt('KG MOVIDOS',y,`700 40px ${D}`,'#fff',16); y+=70;
+    hdr([`${c.series} ${c.series===1?'SERIE':'SERIES'}`,`${c.reps} REPS`,c.rpe!=null?`RPE ${fmt(c.rpe,1)}`:''].filter(Boolean).join(' · '),y,600,40,'#fff',4);
+    if(c.maxI){ y+=56; hdr(`TOP SET · ${c.maxI.name.toUpperCase()} ${fmt(+c.maxI.best.kg,1)} KG × ${c.maxI.best.reps}${at(c.maxI.best)}`,y,600,32,acc,3) }
+    if(lg){ const lw=110, lh=lw*lg.naturalHeight/lg.naturalWidth; g.globalAlpha=.9; g.drawImage(lg,(W-lw)/2,y+40,lw,lh); g.globalAlpha=1 }
+  } else {
+  hdr(String(c.name).toUpperCase(),y,800,74,'#fff',12); y+=62;
+  hdr(c.date,y,700,46,'#fff',8); y+=58;
+  hdr('TEAM POWEROSSO',y,600,34,acc,12); y+=64;
+  hdr(sesTxt,y,700,42,'rgba(255,255,255,.85)',8);
   if(fm==='mixto'&&c.groups.length){ y+=60; y+=donut(y,250,true)+40 }
   else { y+=245; txt(fmt(c.kg),y,`800 230px ${D}`,acc,2); y+=72; txt('KG MOVIDOS',y,`700 54px ${D}`,acc,18); y+=86 }
   hdr([`${c.series}/${c.seriesPlan} SERIES`,`${c.reps} REPS`,c.rpe!=null?`RPE ${fmt(c.rpe,1)}`:''].filter(Boolean).join(' · '),y,700,50,'#fff',4); y+=80;
   const pill=(lab,desc)=>{ g.font=`800 32px ${D}`; try{g.letterSpacing='4px'}catch(e){} const pw=g.measureText(lab).width+36; try{g.letterSpacing='0px'}catch(e){} const x0=70;
     g.fillStyle=acc; g.beginPath(); (g.roundRect?g.roundRect(x0,y-36,pw,48,8):g.rect(x0,y-36,pw,48)); g.fill(); txt(lab,y,`800 32px ${D}`,'#111',4,'left',x0+18);
     txt(fit(desc,W-x0-pw-90,`500 30px ${B}`),y-2,`500 30px ${B}`,'#fff',0,'left',x0+pw+20); y+=66 };
-  const at=st=>{ const r=c.rpeOf(st); return r!=null?` @${fmt(r,1).replace(/,0$/,'')}`:'' };
   if(c.maxI) pill('MÁX. INTENSIDAD',`${c.maxI.name} · ${fmt(+c.maxI.best.kg,1)} kg × ${c.maxI.best.reps}${at(c.maxI.best)}`);
   if(c.maxV) pill('MÁX. VOLUMEN',`${c.maxV.name} · ${fmt(+c.maxV.bt.kg,1)} × ${c.maxV.bt.reps} = ${fmt(c.maxV.bt.kg*c.maxV.bt.reps)} kg`);
   if(fm==='grupos'&&c.groups.length){ y+=90; y+=donut(y,190,false)+30 }
-  else if(c.top.length){ y+=16; txt('MEJORES SERIES POR EJERCICIO',y,`700 36px ${D}`,'rgba(255,255,255,.75)',10); y+=70;
+  else if(c.top.length){ y+=16; txt('MEJORES SERIES',y,`700 36px ${D}`,'rgba(255,255,255,.75)',10); y+=70;
     c.top.forEach(e=>{ const v=`${fmt(+e.best.kg,1)} kg × ${e.best.reps}${at(e.best)}`; g.font=`700 46px ${D}`; const vw=g.measureText(v).width; txt(fit(e.name,W-300-vw-40,`500 40px ${B}`),y,`500 40px ${B}`,'#fff',0,'left',150); txt(v,y,`700 46px ${D}`,'#fff',1,'right',W-150); y+=68 }) }
-  const lg=S.logoImg||(S.logoImg=await new Promise(ok=>{ const i=new Image(); i.onload=()=>ok(i); i.onerror=()=>ok(null); i.src=LOGO })); if(lg){ const lw=170, lh=lw*lg.naturalHeight/lg.naturalWidth; g.drawImage(lg,(W-lw)/2,y+10,lw,lh) }
+  if(lg){ const lw=170, lh=lw*lg.naturalHeight/lg.naturalWidth; g.drawImage(lg,(W-lw)/2,y+10,lw,lh) } }
   g.restore();
   // vista previa al instante en el canvas; el PNG para guardar se genera un poco después
   S.photoCv=cv; S.photoName=`powerosso-S${c.w}-${c.week?'semana':'D'+c.d}-${c.date.replace(/\W+/g,'-')}.png`; S.photoUrl=S.photoUrl||'1'; paintPrev();
@@ -1347,7 +1358,7 @@ function vAyuda(){ const D=(t,body,open)=>`<details${open?' open':''}><summary>$
   ${D('6. Saltar, volver y series no hechas',`<ul><li><b>Saltar ejercicio</b> sin marcar "Serie hecha" cuenta como que <b>esas series no se hicieron</b>. Tu coach lo ve así en su panel.</li><li>Si hiciste una serie, márcala siempre con "Serie hecha", aunque sea con otro peso o reps.</li><li><b>Anterior</b> te lleva al ejercicio previo para completar series que te faltaron.</li><li>Para <b>corregir el RPE</b> de una serie ya hecha, toca esa serie (S1, S2…) arriba de la tarjeta, escribe el nuevo valor y aprieta ✓.</li><li>Puedes salir y volver: el día queda <b>En curso</b> y retomas donde quedaste.</li></ul>`)}
   ${D('7. Serie Bilbo y 1RM estimado',`<ul><li>En la serie de <b>Press de banca Bilbo</b>, al escribir las reps ves tu <b>1RM estimado</b>: peso × reps × 0,03 + peso.</li><li>Queda guardado y tu coach ve tu avance sesión a sesión.</li></ul>`)}
   ${D('8. Observaciones para tu coach',`<ul><li>En cada ejercicio puedes tocar <b>Dejar observación</b>: elige una opción (Intensidad perfecta, Podría hacer más, Muy pesado, Molestia / dolor, Duda técnica) y escribe un comentario si quieres.</li><li>Tu coach recibe el aviso y te puede responder. Las respuestas aparecen en <b>Mis notas</b>.</li></ul>`)}
-  ${D('9. Terminar la sesión y resumen',`<ul><li>En el resumen puedes <b>tomar o elegir una foto</b>: la app le pone tus datos de la sesión (kilos movidos, series, reps, RPE promedio, máx. intensidad, máx. volumen y mejores series o grupos musculares). Eliges el formato en el desplegable bajo la foto, mueves el contenido arrastrando con un dedo y lo agrandas o achicas pellizcando con dos (o con las barras), y la guardas en tu teléfono o la compartes. El RPE que aparece (promedio y @ en cada serie) es el que anotaste; si no lo anotaste, el planificado. En el <b>Dashboard</b> también puedes hacer una foto con los datos de toda la semana.</li><li>En el último ejercicio aparece <b>Terminar sesión</b>. Luego marcas el RPE del día y ves el <b>resumen</b>: kilos levantados, carga, series efectivas, RPE medio y grupos musculares, comparados con el plan.</li></ul>`)}
+  ${D('9. Terminar la sesión y resumen',`<ul><li>En el resumen puedes <b>tomar o elegir una foto</b>: la app le pone tus datos de la sesión (kilos movidos, series, reps, RPE promedio, máx. intensidad, máx. volumen y mejores series o grupos musculares). Eliges el formato en el desplegable bajo la foto (incluye uno <b>Minimalista</b>), mueves el contenido arrastrando con un dedo y lo agrandas o achicas pellizcando con dos (o con las barras), y la guardas en tu teléfono o la compartes. El RPE que aparece (promedio y @ en cada serie) es el que anotaste; si no lo anotaste, el planificado. En el <b>Dashboard</b> también puedes hacer una foto con los datos de toda la semana.</li><li>En el último ejercicio aparece <b>Terminar sesión</b>. Luego marcas el RPE del día y ves el <b>resumen</b>: kilos levantados, carga, series efectivas, RPE medio y grupos musculares, comparados con el plan.</li></ul>`)}
   ${D('10. Dashboard',`<ul><li><b>Kilos levantados / tonelaje</b>: suma de kg × reps de tus series.</li><li><b>Carga</b>: tonelaje × RPE / 10.</li><li><b>Series efectivas</b>: series con RPE 7 o más.</li><li>También ves los grupos musculares trabajados, el tonelaje por día y por levantamiento, y tu peso más alto por semana.</li></ul>`)}
   ${D('11. Tema y avisos',`<ul><li>En <b>Tema</b> eliges el color de la app (dorado, rojo, azul, verde o rosa) y su tonalidad. Se guarda en tu teléfono.</li><li>Ahí también activas y pruebas el aviso del descanso.</li></ul>`)}
   ${D('12. Si algo no funciona',`<ul><li>Revisa tu internet y vuelve a abrir la app.</li><li>Si dice que el link no es válido, pídele a tu coach tu link actual.</li><li>Si no te llegan los avisos: permite las notificaciones de Chrome (o Powerosso) en los ajustes del teléfono y quita el ahorro de batería para Chrome. Con la pantalla bloqueada mucho rato, algunos teléfonos pausan la app.</li></ul>`)}
