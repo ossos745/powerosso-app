@@ -891,7 +891,7 @@ function vAlumnos(){const list=Object.entries(DATA.athletes).map(([id,a])=>({id,
     <div class="btns" style="margin-top:10px"><button class="btn ghost sm" data-act="add-cancel">Cancelar</button><button class="btn goldb sm" data-act="add-save">Crear alumno</button></div></div>`
   :`<button class="btn goldb" data-act="add">Agregar alumno</button>`}
   ${Store.kind==='local'?`<div class="muted small">Modo sin conexión: los datos se guardan solo en este navegador.</div>`:''}
-  ${vTema()}${vAvisos()}
+  ${pushCard()}${vTema()}${vAvisos()}
   ${vRespaldo()}`}
 
 function delPanel(aid){ const a=DATA.athletes[aid]; const others=Object.entries(DATA.athletes).filter(([k,x])=>k!==aid).sort((x,y)=>String(x[1].name).localeCompare(y[1].name));
@@ -1081,7 +1081,7 @@ function exportExcel(){ if(typeof XLSX==='undefined') return flash('No se pudo c
 function vNotasCoach(){const all=Object.entries(DATA.notes).map(([id,n])=>({id,...n})).sort((a,b)=>(a.reviewed?1:0)-(b.reviewed?1:0)||b.at-a.at);
   const f=S.nfilter||''; const shown=all.filter(n=>!f||n.aid===f);
   const ids=[...new Set(all.map(n=>n.aid))];
-  return `<h2 class="h2">Observaciones</h2>
+  return `<h2 class="h2">Observaciones</h2>${S.pushOn===false?pushCard():''}
   <div class="chips"><button class="chip" data-nf="" aria-pressed="${!f}">Todos</button>${ids.map(id=>`<button class="chip" data-nf="${id}" aria-pressed="${f===id}">${esc(DATA.athletes[id]?.name||id)}${unread(id)?` · ${unread(id)}`:''}</button>`).join('')}</div>
   ${shown.length?`<div class="card" style="display:flex;flex-direction:column;gap:12px">${shown.map(n=>noteHtml(n,true)).join('')}</div>`:`<div class="card muted">Sin observaciones todavía. Aparecen aquí cuando un alumno deja una en un ejercicio.</div>`}`}
 
@@ -1467,6 +1467,8 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
       Notification.requestPermission().then(p=>{ if(p==='granted'){ notifyRest('Así te avisará la app cuando termine el descanso.','Powerosso · prueba de aviso'); flash('Avisos activados. Te llegó una notificación de prueba.') } else flash('Las notificaciones están bloqueadas. Actívalas en Ajustes del teléfono → Apps → Chrome (o Powerosso) → Notificaciones.',true); render() }) }catch(e){} return;
     case 'xls': return exportExcel();
     case 'install': if(installEv){ const ev=installEv; installEv=null; ev.prompt(); ev.userChoice.finally(()=>render()) } return;
+    case 'push-on': return pushToggle(true);
+    case 'push-off': return pushToggle(false);
     case 'reply-cancel': S.replyTo=null; S.replyDraft=null; return render();
     case 'reply-save': { const n=DATA.notes[a.id]; if(!n){ flash('Esa observación ya no existe.',true); S.replyTo=null; return render() }
       const t=$('#reply-txt'), txt=String(t?t.value:(S.replyDraft||'')).trim(); if(!txt){ flash('Escribe la respuesta antes de guardar.',true); return }
@@ -1533,6 +1535,22 @@ function vAyuda(){ const D=(t,body,open)=>`<details${open?' open':''}><summary>$
   ${D('11. Tema y avisos',`<ul><li>En <b>Tema</b> eliges el color de la app (dorado, rojo, azul, verde o rosa) y su tonalidad. Se guarda en tu teléfono.</li><li>Ahí también activas y pruebas el aviso del descanso.</li></ul>`)}
   ${D('12. Si algo no funciona',`<ul><li>Revisa tu internet y vuelve a abrir la app.</li><li>Si dice que el link no es válido, pídele a tu coach tu link actual.</li><li>Si no te llegan los avisos: permite las notificaciones de Chrome (o Powerosso) en los ajustes del teléfono y quita el ahorro de batería para Chrome. Con la pantalla bloqueada mucho rato, algunos teléfonos pausan la app.</li></ul>`)}
   </div>`}
+// avisos push al coach por observaciones nuevas (llegan aunque la app esté cerrada)
+const VAPID_PUB='BOZsB4HCKowBQvM7RYb0ZPDcCBFMebcGWtxTauBAq2rer9NuzfNeGh18RA_2vUnpryRiFIHwCqkcfq8HeRAP-wc';
+const pushOk=()=>Store.kind==='supa'&&'serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window;
+async function pushState(){ if(!pushOk()) return 'no'; try{ const r=await navigator.serviceWorker.ready, sb=await r.pushManager.getSubscription(); S.pushOn=!!sb&&Notification.permission==='granted' }catch(e){ S.pushOn=false } return S.pushOn }
+async function pushToggle(on){ if(!pushOk()) return flash('Este navegador no permite avisos. Instala la app desde Chrome (⋮ → Instalar app) y ábrela desde el ícono.',true);
+  try{ const r=await navigator.serviceWorker.ready; let sb=await r.pushManager.getSubscription();
+    if(on){ if(await Notification.requestPermission()!=='granted') return flash('Las notificaciones están bloqueadas. Actívalas en los ajustes del teléfono para Chrome o Powerosso.',true);
+      if(!sb){ const k=Uint8Array.from(atob(VAPID_PUB.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0)); sb=await r.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:k}) }
+      await rpc('pw_push_sub',{p_token:Store.token,p_sub:sb.toJSON(),p_on:true}); S.pushOn=true; flash('Listo: te llegará un aviso cada vez que un alumno deje una observación.') }
+    else { if(sb){ await rpc('pw_push_sub',{p_token:Store.token,p_sub:sb.toJSON(),p_on:false}).catch(()=>{}); await sb.unsubscribe() } S.pushOn=false; flash('Avisos de observaciones desactivados en este teléfono.') }
+  }catch(e){ flash('No se pudieron activar los avisos. Revisa tu conexión e inténtalo de nuevo.',true) } render() }
+function pushCard(){ if(Store.kind!=='supa') return ''; if(S.pushOn===undefined){ S.pushOn=null; pushState().then(()=>render()) }
+  return `<div class="card"><div class="eyebrow" style="margin-bottom:4px">Avisos de observaciones</div><div class="small muted" style="margin-bottom:10px">Te llega una notificación a este teléfono cada vez que un alumno deja una observación, aunque la app esté cerrada. Actívalo en cada teléfono o computador donde lo quieras.</div>
+  ${!pushOk()?`<div class="small muted">Este navegador no permite avisos. Instala la app desde Chrome (⋮ → Instalar app) y ábrela desde el ícono.</div>`
+   :S.pushOn?`<div class="row"><span class="pill ok">Avisos activados</span><button class="chip" data-act="push-off">Desactivar</button></div>`
+   :`<button class="btn goldb sm" data-act="push-on">Activar avisos de observaciones</button>`}</div>`}
 function vAvisos(){ const st=!('Notification' in window)?'no':Notification.permission;
   return `<div class="card"><div class="eyebrow" style="margin-bottom:4px">Aviso al terminar el descanso</div>
   <div class="small muted" style="margin-bottom:10px">Cuando se acaba el descanso, el teléfono suena, vibra y te llega una notificación, aunque estés fuera de la app. Si tienes un reloj conectado que recibe las notificaciones del teléfono, también vibra en el reloj.</div>
@@ -1552,7 +1570,8 @@ const installBanner=()=>installEv?`<div class="banner"><span>Instala Powerosso c
     if(!Store.token){ S.mode='nolink'; return render() }
     try{ await Store.pull(true) }catch(e){ S.mode='nolink'; if(e.status){ S.badLink=true; if(Store.fromSaved) savedToken.clear() } else S.netErr=true; return render() }
     savedToken.set(Store.token,S.isCoach);
-    S.ready=3; route();
+    S.ready=3; if(S.isCoach&&new URLSearchParams(location.search).get('ver')==='obs') S.ctab='notas'; route(); if(S.isCoach) pushState();
+    try{ navigator.serviceWorker&&navigator.serviceWorker.addEventListener('message',e=>{ if(e.data&&e.data.obs&&S.isCoach){ location.hash=''; S.mode='coach'; S.ctab='notas'; Store.pull(false).finally(render) } }) }catch(e){}
     const again=()=>{ if(document.hidden) return; Store.pull(false).then(ch=>ch&&softRender()).catch(()=>{}) };
     setInterval(again,20000); document.addEventListener('visibilitychange',again); return }
   if(Store.kind==='db'){ let u=null; try{u=await window.claude.use('user')}catch(e){} S.isCoach=u?await u.isOwner():false }
