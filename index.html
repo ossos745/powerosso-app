@@ -325,7 +325,7 @@ const Store={kind:'local',db:null,q:{},subs:[],token:'',since:null,pulls:0,pendi
   listen(coll,cb){ if(this.kind==='db'){ return this.db.collection(coll).onSnapshot(s=>{const o={}; s.docs.forEach(d=>o[d.id]=d.data()); cb(o)}, e=>{flash('Se perdió la conexión con los datos. Recarga la página.',true)}) }
     const f=()=>cb(Object.assign({},this.local()[coll]||{})); this.subs.push(f); f(); },
   put(coll,id,body){ DATA[coll][id]=body; if(this.kind==='supa'){ const k=coll+'/'+id; this.pending.add(k);
-      this.q[k]=(this.q[k]||Promise.resolve()).then(()=>rpc('pw_put',{p_token:this.token,p_coll:coll,p_id:id,p_data:body})).catch(e=>flash(e.status===403||/permiso/.test(e.message)?'No tienes permiso para guardar esto.':'No se pudo guardar. Revisa tu conexión.',true)).finally(()=>this.pending.delete(k)); return this.q[k] }
+      this.q[k]=(this.q[k]||Promise.resolve()).then(()=>rpc('pw_put',{p_token:this.token,p_coll:coll,p_id:id,p_data:body})).then(()=>true,e=>{ flash(e.status===403||/permiso/.test(e.message)?'No tienes permiso para guardar esto.':'No se pudo guardar. Revisa tu conexión.',true); return false }).finally(()=>this.pending.delete(k)); return this.q[k] }
     if(this.kind==='db'){ const k=coll+'/'+id; this.q[k]=(this.q[k]||Promise.resolve()).then(()=>this.db.collection(coll).doc(id).set(body)).catch(e=>flash(e&&e.code==='invalid_argument'?'No tienes permiso para guardar aquí. Pide a tu coach que te comparta la app como editor.':e&&e.code==='quota_exceeded'?'La base de datos está llena.':'No se pudo guardar. Revisa tu conexión.',true)); return this.q[k] }
     const o=this.local(); (o[coll]=o[coll]||{})[id]=body; this.saveLocal(o); return Promise.resolve() },
   del(coll,id){ delete DATA[coll][id]; if(this.kind==='supa') return rpc('pw_del',{p_token:this.token,p_coll:coll,p_id:id}).catch(()=>flash('No se pudo borrar.',true));
@@ -445,7 +445,7 @@ function noteHtml(n,coach){const cls=/Molestia|pesado/.test(n.tag||'')?'bad':/m�
   <div>${n.tag?`<b>${esc(n.tag)}</b>${n.text?' · ':''}`:''}${esc(n.text||'')}</div>
   ${n.reply?`<div class="reply"><span class="gold">Coach:</span> ${esc(n.reply)}</div>`:''}
   ${coach?`<div class="row" style="justify-content:flex-start;gap:6px;margin-top:4px">${S.replyTo===n.id?'':`<button class="chip" data-reply="${n.id}">Responder</button>`}<button class="chip" data-review="${n.id}" aria-pressed="${!!n.reviewed}">${n.reviewed?'Revisada':'Marcar revisada'}</button><button class="chip" data-delnote="${n.id}">Borrar</button></div>
-  ${S.replyTo===n.id?`<textarea id="reply-txt" placeholder="Tu respuesta para ${esc(DATA.athletes[n.aid]?.name||'el alumno')}">${esc(n.reply||'')}</textarea><div class="btns"><button class="btn ghost sm" data-act="reply-cancel">Cancelar</button><button class="btn goldb sm" data-act="reply-save" data-id="${n.id}">Guardar respuesta</button></div>`:''}`:''}</div>`}
+  ${S.replyTo===n.id?`<textarea id="reply-txt" placeholder="Tu respuesta para ${esc(DATA.athletes[n.aid]?.name||'el alumno')}">${esc(S.replyDraft!=null?S.replyDraft:n.reply||'')}</textarea><div class="btns"><button class="btn ghost sm" data-act="reply-cancel">Cancelar</button><button class="btn goldb sm" data-act="reply-save" data-id="${n.id}">Guardar respuesta</button></div>`:''}`:''}</div>`}
 
 // ---------- calentamiento y aproximaciones ----------
 // preferencias por alumno (las cambian el alumno o el coach); se guardan como un registro especial '<aid>~PREFS'
@@ -1268,7 +1268,7 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
   if(a.rf!==undefined){S.rfilter=a.rf; return render()}
   if(a.nf!==undefined){S.nfilter=a.nf; return render()}
   if(a.review){const n=DATA.notes[a.review]; Store.put('notes',a.review,{...n,reviewed:!n.reviewed}); return render()}
-  if(a.reply){S.replyTo=a.reply; render(); const t=$('#reply-txt'); t&&t.focus(); return}
+  if(a.reply){S.replyTo=a.reply; S.replyDraft=null; render(); const t=$('#reply-txt'); t&&t.focus(); return}
   if(a.day){ S.dayMenu=null; S.editSet=null; S.warmI=null; S.aprox=null; S.aproxW=null; S.photoUrl=null; S.photoBlob=null; S.photoImg=null; S.photoCv=null; const L0=dayLog(S.week,+a.day);
     // día ya hecho: va directo al resumen (para repetirlo se mantiene presionado y se reinicia)
     if(L0&&L0.done){ S.day=+a.day; S.toast=''; S.view='resumen'; window.scrollTo(0,0); return render() }
@@ -1360,8 +1360,11 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
       Notification.requestPermission().then(p=>{ if(p==='granted'){ notifyRest('Así te avisará la app cuando termine el descanso.','Powerosso · prueba de aviso'); flash('Avisos activados. Te llegó una notificación de prueba.') } else flash('Las notificaciones están bloqueadas. Actívalas en Ajustes del teléfono → Apps → Chrome (o Powerosso) → Notificaciones.',true); render() }) }catch(e){} return;
     case 'xls': return exportExcel();
     case 'install': if(installEv){ const ev=installEv; installEv=null; ev.prompt(); ev.userChoice.finally(()=>render()) } return;
-    case 'reply-cancel': S.replyTo=null; return render();
-    case 'reply-save': { const n=DATA.notes[a.id], txt=($('#reply-txt').value||'').trim(); Store.put('notes',a.id,{...n,reply:txt,reviewed:true,seen:false}); S.replyTo=null; return render() }
+    case 'reply-cancel': S.replyTo=null; S.replyDraft=null; return render();
+    case 'reply-save': { const n=DATA.notes[a.id]; if(!n){ flash('Esa observación ya no existe.',true); S.replyTo=null; return render() }
+      const t=$('#reply-txt'), txt=String(t?t.value:(S.replyDraft||'')).trim(); if(!txt){ flash('Escribe la respuesta antes de guardar.',true); return }
+      Promise.resolve(Store.put('notes',a.id,{...n,reply:txt,reviewed:true,seen:false})).then(ok=>{ if(ok!==false) flash('Respuesta guardada. Tu alumno la verá en Observaciones.') });
+      S.replyTo=null; S.replyDraft=null; return render() }
   }
 });
 
@@ -1375,6 +1378,7 @@ function route(){ const h=decodeURIComponent((location.hash||'').slice(1));
 window.addEventListener('hashchange',route);
 function setMeso(aid,k){ const at=JSON.parse(JSON.stringify(DATA.athletes[aid])); at.meso=k; Store.put('athletes',aid,at); if(aid===S.aid) S.week=null; flash(`${at.name.split(' ')[0]} ahora está en ${mesoLabel(k)}.`) }
 document.addEventListener('input',e=>{const t=e.target;
+  if(t.id==='reply-txt'){ S.replyDraft=t.value; return }
   if(t.id==='aprox-kg'){ S.aproxKg={ex:S.ex,v:parseFloat(t.value.replace(',','.'))||null}; return }
   if(t.dataset&&t.dataset.draft&&S.view==='sesion'){ const dr=curDraft(); dr[t.dataset.draft]=t.value; if(t.dataset.draft==='rpe') dr.rpeOk=false }
   if(t.id==='t-rpe'||t.id==='cur-rpe'||t.id==='edit-rpe'||t.id==='coach-rpe'){ const raw=t.value.replace(',','.').trim(), v=parseFloat(raw); t.style.borderColor=raw===''||(v>=1&&v<=10)?'':'var(--red)'; return }
@@ -1383,7 +1387,10 @@ document.addEventListener('keydown',e=>{ if(e.key==='Enter'&&e.target.id==='t-rp
 document.addEventListener('change',e=>{const t=e.target; if(t.dataset&&t.dataset.meso) setMeso(t.dataset.meso,t.value); if(t.id==='aprox-kg') render()});
 // no borrar lo que alguien está escribiendo cuando llegan datos nuevos
 function softRender(){const ae=document.activeElement; if(ae&&/INPUT|TEXTAREA/.test(ae.tagName)&&ae.closest('main')){S.dirty=true;return} render()}
-document.addEventListener('focusout',()=>setTimeout(()=>{const ae=document.activeElement; if(S.dirty&&!(ae&&/INPUT|TEXTAREA/.test(ae.tagName))){S.dirty=false;render()}},50));
+// si el campo pierde el foco porque se apretó un botón, se espera a que termine ese clic antes de redibujar (si no, el botón desaparece y el clic se pierde)
+let ptrDown=false; document.addEventListener('pointerdown',()=>{ptrDown=true},true); ['pointerup','pointercancel'].forEach(t=>document.addEventListener(t,()=>setTimeout(()=>{ptrDown=false},0),true));
+const dirtyRender=()=>{const ae=document.activeElement; if(S.dirty&&!(ae&&/INPUT|TEXTAREA/.test(ae.tagName))){S.dirty=false;render()}};
+document.addEventListener('focusout',()=>setTimeout(function w(){ if(ptrDown) return setTimeout(w,60); dirtyRender() },50));
 
 try{ S.wview=localStorage.getItem('powerosso.wview')==='1' }catch(e){}
 let installEv=null;
