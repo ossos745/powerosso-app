@@ -793,6 +793,7 @@ function vDash(){const w=wkObj(S.week), rm=weekMetrics(w,true), pm=weekMetrics(w
   return `<div class="row"><div><div class="eyebrow">Semana ${w.n}${phase(w)?' · '+title(phase(w)):''}</div><h2 class="h2">Dashboard semanal</h2></div><span class="pill ${done===w.days.length?'ok':'warn'}">${done}/${w.days.length} sesiones</span></div>
   ${kpis(rm,pm)}
   <div class="card"><div class="eyebrow" style="margin-bottom:2px">Avance de topsets</div><div class="small muted" style="margin-bottom:10px">1RM estimado (peso × reps × 0,03 + peso) de la mejor serie de cada básico por semana. Línea punteada = variante (pausa, búfalo, block pull…).</div>${topsetChart(w.n)}</div>
+  ${rpeCards(S.aid,mesoOf(ATH()),w.n)}
   ${S.mode==='athlete'&&rm.series?photoCardHtml('week'):''}
   <div class="card"><div class="eyebrow" style="margin-bottom:2px">Grupos musculares (tonelaje)</div><div class="small muted" style="margin-bottom:8px">Sentadilla, banca, peso muerto y press militar reparten sus kilos entre los músculos que trabajan, según la tabla de ponderaciones.</div>
   <div class="chips" style="margin-bottom:10px"><button class="chip" data-pieday="0" aria-pressed="${!pd}">Semana</button>${w.days.map(d=>`<button class="chip" data-pieday="${d.n}" aria-pressed="${pd===d}">${dayShort(d)}</button>`).join('')}</div>${pieMuscles(pieSel)}</div>
@@ -836,6 +837,26 @@ function topsetChart(cur){ const W=PLAN().weeks, data=W.map(w=>({w,t:weekTops(w)
     return `<tr><td>${k}<div class="small muted">${esc(t.name)}</div></td><td class="num">${fmt(t.kg,1)}×${t.reps}${t.rpe!=null&&t.rpe!==''?` @${fmt(+t.rpe,1).replace(/,0$/,'')}`:''}</td><td class="num"><b>${fmt(t.rm,1)}</b>${dlt!=null&&Math.abs(dlt)>=0.05?`<div class="small" style="color:${dlt>0?'var(--green)':'var(--red)'}">${dlt>0?'▲ +':'▼ '}${fmt(dlt,1)}</div>`:''}</td></tr>` }).join('');
   return chips+`<svg viewBox="0 0 ${VW} ${VH}" width="100%" role="img" aria-label="1RM estimado del topset por semana">${g}${lines}</svg>${legend}
   ${rows?`<div class="tbl" style="margin-top:10px"><table><thead><tr><th>Semana ${cur}</th><th>Topset</th><th>1RM est.</th></tr></thead><tbody>${rows}</tbody></table></div>`:`<div class="muted small" style="margin-top:8px">Esta semana todavía no hay topsets registrados.</div>`}`}
+// RPE por semana: planificado (promedio de las series del plan) vs real (promedio de los RPE anotados); lift = solo ese básico con sus variantes
+function rpeWeeks(aid,meso,lift){ const P=plansOf(DATA.athletes[aid])[meso]; if(!P) return [];
+  return P.weeks.map(w=>{ let ps=0,pn=0; const re=[]; w.days.forEach(d=>{ const L=dayLog(w.n,d.n,aid,meso); d.exercises.forEach((x,i)=>{ if(lift&&(tsCat(x)||'').replace(' variante','')!==lift) return;
+      if(x.rpeN){ ps+=x.rpeN*(x.sets||1); pn+=x.sets||1 } ((L&&(L.sets||{})[i])||[]).forEach(st=>{ if(hasR(st.rpe)) re.push(+st.rpe) }) }) });
+    return {n:w.n,plan:pn?ps/pn:null,real:avgOf(re),k:re.length} }) }
+function rpeBars(rows,cur,lbl){ if(!rows.some(r=>r.plan!=null||r.real!=null)) return `<div class="muted small">Sin RPE planificado ni registrado.</div>`;
+  const VW=320,VH=170,PL=26,PR=6,PT=8,PB=22, vals=rows.flatMap(r=>[r.plan,r.real]).filter(v=>v!=null), lo=Math.min(4,Math.floor(Math.min(...vals))-1), hi=10;
+  const bw=(VW-PL-PR)/rows.length, ys=v=>PT+(hi-v)/(hi-lo)*(VH-PT-PB); let g='';
+  for(let v=lo;v<=hi;v++) g+=`<line x1="${PL}" x2="${VW-PR}" y1="${ys(v)}" y2="${ys(v)}" stroke="var(--line)"/><text x="${PL-4}" y="${ys(v)+3}" font-size="9" text-anchor="end" fill="var(--muted)" font-family="IBM Plex Mono,monospace">${v}</text>`;
+  const b=Math.min(14,bw*0.34), bars=rows.map((r,i)=>{ const cx=PL+i*bw+bw/2, on=r.n===cur;
+    return `${on?`<rect x="${cx-bw/2+1}" y="${PT}" width="${bw-2}" height="${VH-PT-PB}" rx="4" fill="var(--gold)" opacity=".1"/>`:''}${r.plan!=null?`<rect x="${cx-b-1}" y="${ys(r.plan)}" width="${b}" height="${ys(lo)-ys(r.plan)}" rx="2" fill="var(--surface-2)" stroke="var(--muted)"><title>Plan ${fmt(r.plan,1)}</title></rect>`:''}${r.real!=null?`<rect x="${cx+1}" y="${ys(r.real)}" width="${b}" height="${ys(lo)-ys(r.real)}" rx="2" fill="${r.plan!=null&&r.real-r.plan>=1?'var(--red)':'var(--gold)'}"><title>Real ${fmt(r.real,1)}</title></rect>`:''}<text x="${cx}" y="${VH-6}" font-size="10" text-anchor="middle" fill="${on?'var(--gold)':'var(--muted)'}" font-family="IBM Plex Mono,monospace">S${r.n}</text>` }).join('');
+  const shown=rows.filter(r=>r.real!=null||r.n===cur);
+  return `<svg viewBox="0 0 ${VW} ${VH}" width="100%" role="img" aria-label="${esc(lbl)}">${g}${bars}</svg>
+  <div class="legend" style="margin-top:4px"><span><i style="background:var(--surface-2);outline:1px solid var(--muted)"></i>Planificado</span><span><i style="background:var(--gold)"></i>Real</span><span><i style="background:var(--red)"></i>Real 1+ sobre el plan</span></div>
+  ${shown.length?`<div class="tbl" style="margin-top:8px"><table><thead><tr><th>Semana</th><th>Plan</th><th>Real</th><th>Dif.</th></tr></thead><tbody>${shown.map(r=>`<tr${r.n===cur?' style="color:var(--gold)"':''}><td>S${r.n}${r.k?`<span class="small muted"> · ${r.k} series</span>`:''}</td><td class="num pl">${r.plan!=null?fmt(r.plan,1):'—'}</td><td class="num"><b>${r.real!=null?fmt(r.real,1):'—'}</b></td><td class="num ${r.plan!=null&&r.real!=null?dcls(r.real-r.plan):''}">${r.plan!=null&&r.real!=null?sgn(r.real-r.plan):'—'}</td></tr>`).join('')}</tbody></table></div>`:''}` }
+// las dos tarjetas de RPE (promedio semanal y por básico), para el dashboard del alumno y las estadísticas del coach
+function rpeCards(aid,meso,cur){ const lift=S.rpeLift||'Sentadilla';
+  return `<div class="card"><div class="eyebrow" style="margin-bottom:2px">RPE promedio por semana</div><div class="small muted" style="margin-bottom:8px">Planificado (promedio de las series del plan) vs real (promedio de los RPE anotados).</div>${rpeBars(rpeWeeks(aid,meso),cur,'RPE promedio planificado y real por semana')}</div>
+  <div class="card"><div class="eyebrow" style="margin-bottom:2px">RPE por básico</div><div class="small muted" style="margin-bottom:8px">Cada levantamiento con sus variantes (pausa, búfalo, block pull…).</div>
+  <div class="chips" style="margin-bottom:10px">${['Sentadilla','Banca','Peso muerto'].map(l=>`<button class="chip" data-rpelift="${l}" aria-pressed="${lift===l}">${l}</button>`).join('')}</div>${rpeBars(rpeWeeks(aid,meso,lift),cur,'RPE de '+lift+' planificado y real por semana')}</div>` }
 function topTable(){const W=PLAN().weeks.filter(w=>!w.deload);
   return `<div class="tbl"><table><thead><tr><th>Levantamiento</th>${W.map(w=>`<th>S${w.n}</th>`).join('')}</tr></thead><tbody>
   ${['Sentadilla','Banca','Peso muerto'].map(c=>`<tr><td>${c}</td>${W.map(w=>{const h=heaviest(w,c); return h.real?`<td class="num"><b>${fmt(h.real,1)}</b></td>`:`<td class="num pl">${h.plan!=null?fmt(h.plan,1):'—'}</td>`}).join('')}</tr>`).join('')}</tbody></table></div>`}
@@ -991,6 +1012,9 @@ function vStatsAlumno(f){ const P=perf(f), rows=rpeRows(f).filter(r=>inPer(r.t))
   if(!P.n) return `<div class="card muted">${esc(P.name)} no tiene entrenamientos en este periodo.</div>`;
   const by={}; rows.filter(r=>r.real!=null&&r.plan!=null).forEach(r=>(by[r.name]=by[r.name]||[]).push(r));
   const exT=Object.entries(by).map(([n,a])=>({n,st:rpeStats(a)})).sort((x,y)=>Math.abs(y.st.mean)-Math.abs(x.st.mean));
+  const a=DATA.athletes[f], ms=mesoKeys(a).filter(k=>Object.values(DATA.logs).some(L=>L.aid===f&&L.meso===k)), act=mesoOf(a);
+  const sm=ms.includes(S.statMeso)?S.statMeso:(ms.includes(act)?act:ms[ms.length-1]);
+  const rpeW=sm?`<div class="eyebrow" style="margin:6px 0 8px">RPE por semana${ms.length>1?'':' · '+esc(mesoLabel(sm))}</div>${ms.length>1?`<div class="chips" style="margin-bottom:10px">${ms.map(k=>`<button class="chip" data-statmeso="${esc(k)}" aria-pressed="${sm===k}">${esc(mesoLabel(k))}</button>`).join('')}</div>`:''}${rpeCards(f,sm,sm===act?currentWeek(f):null)}`:'';
   return `<div class="card"><div class="eyebrow" style="margin-bottom:8px">${esc(P.name)} · ${P.n} sesiones registradas</div>
   <div class="kpis">${mk('Kilos levantados',fmt(P.kr)+' kg',`plan ${fmt(P.kp)} kg · ${pct(P.kpct)}`)}${mk('Series hechas',fmt(P.sr),`plan ${fmt(P.sp)} · ${pct(P.spct)}`)}${mk('Sesiones completas',`${P.done}/${P.n}`,'terminadas con “Terminar sesión”')}${mk('RPE del día',P.rpeDay!=null?fmt(P.rpeDay,1):'—','promedio')}</div></div>
   ${st?`<div class="card"><div class="eyebrow" style="margin-bottom:8px">RPE planificado vs real · ${st.n} series comparadas</div>
@@ -1001,6 +1025,7 @@ function vStatsAlumno(f){ const P=perf(f), rows=rpeRows(f).filter(r=>inPer(r.t))
   <div class="card"><div class="eyebrow" style="margin-bottom:6px">Por ejercicio</div><div class="tbl wrap"><table><thead><tr><th>Ejercicio</th><th>Series</th><th>Plan</th><th>Real</th><th>Dif.</th><th>DE</th></tr></thead><tbody>
   ${exT.map(e=>`<tr><td>${esc(e.n)}</td><td class="num">${e.st.n}</td><td class="num pl">${fmt(e.st.plan,1)}</td><td class="num">${fmt(e.st.real,1)}</td><td class="num ${dcls(e.st.mean)}"><b>${sgn(e.st.mean)}</b></td><td class="num">${fmt(e.st.sd,1)}</td></tr>`).join('')}</tbody></table></div></div>`
   :`<div class="card muted">Sin RPE real anotado en este periodo.</div>`}
+  ${rpeW}
   ${P.bil.length?`<div class="card"><div class="row"><span class="eyebrow">Avance método Bilbo · 1RM estimado</span>${P.bilUp!=null?`<span class="pill ${P.bilUp>=0?'ok':'red'}">${P.bilUp>=0?'+':'−'}${fmt(Math.abs(P.bilUp),1)} kg</span>`:''}</div>
   ${lineChart(P.bil,'1RM estimado Bilbo por sesión')}
   <div class="tbl" style="margin-top:6px"><table><thead><tr><th>Fecha</th><th>Sesión</th><th>Serie</th><th>1RM est.</th></tr></thead><tbody>${P.bil.slice().reverse().map(b=>`<tr><td>${fdate(b.t)}</td><td>S${b.L.w} D${b.L.d}</td><td class="num">${fmt(b.kg,1)}×${b.reps}</td><td class="num"><b>${fmt(b.v,1)}</b></td></tr>`).join('')}</tbody></table></div>
@@ -1322,6 +1347,8 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
   if(a.cf!==undefined){S.cfilter=a.cf; return render()}
   if(a.per!==undefined){S.period=a.per; return render()}
   if(a.t){ if(!S.timer) return; if(a.t==='skip') return stopTimer(); S.timer.end+=(a.t==='+30'?30:-15)*1000; S.timer.beeped=false; armRestAlarm(); return drawTimer() }
+  if(a.rpelift){ S.rpeLift=a.rpelift; return render() }
+  if(a.statmeso){ S.statMeso=a.statmeso; return render() }
   if(a.tslift!==undefined){ S.tsLift=a.tslift; return render() }
   if(a.pieday!==undefined){ S.pieDay=+a.pieday||null; return render() }
   if(a.week){S.week=+a.week; S.view='dias'; S.toast=''; return render()}
