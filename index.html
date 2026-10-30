@@ -397,7 +397,10 @@ function heaviest(w,cat){let plan=null,real=null;
   w.days.forEach(d=>d.exercises.forEach((x,i)=>{ if(LIFT(x.name)!==cat) return; if(x.kg!=null) plan=Math.max(plan||0,x.kg); const st=(dayLog(w.n,d.n)||{sets:{}}).sets[i]; if(st&&st.length) real=Math.max(real||0,...st.map(s=>+s.kg||0)) }));
   return {plan,real}}
 function weekDone(w,aid=S.aid){return w.days.filter(d=>(dayLog(w.n,d.n,aid)||{}).done).length}
-function currentWeek(aid=S.aid){const W=planOf(DATA.athletes[aid]).weeks; let last=-1; W.forEach((w,i)=>{ if(w.days.some(d=>dayLog(w.n,d.n,aid))) last=i }); if(last<0) return W[0].n; const w=W[last]; if(w.days.every(d=>(dayLog(w.n,d.n,aid)||{}).done) && W[last+1]) return W[last+1].n; return w.n}
+// semana por defecto: la del último entrenamiento registrado (por fecha) en el mesociclo activo; sin registros, la primera
+function currentWeek(aid=S.aid){const W=planOf(DATA.athletes[aid]).weeks; let best=null,bt=-1;
+  W.forEach(w=>w.days.forEach(d=>{ const L=dayLog(w.n,d.n,aid); if(!L||!(L.done||Object.values(L.sets||{}).some(a=>(a||[]).length))) return; const t=sessDate(L); if(t>=bt){ bt=t; best=w.n } }));
+  return best??W[0].n}
 
 // ---------- cabecera ----------
 function brand(sub,name){return `<div class="brand"><img src="${LOGO}" alt="Team Powerosso"><div class="who"><div class="eyebrow">${sub}</div><div style="font:700 20px/1.1 var(--display);text-transform:uppercase;letter-spacing:.03em">${name}</div></div></div>`}
