@@ -520,18 +520,23 @@ function sessionCard(scope){ const w=wkObj(S.week), a=ATH(), week=scope==='week'
   const dts=days.map(([d,L])=>sessDate(L)).filter(Boolean), L0=days[0]&&days[0][1];
   const date=week?(dts.length?(fdNum(Math.min(...dts))===fdNum(Math.max(...dts))?fdNum(dts[0]):`${fdNum(Math.min(...dts)).slice(0,5)} AL ${fdNum(Math.max(...dts))}`):fdNum(Date.now())):fdNum(sessDate(L0)||Date.now());
   const seriesPlan=(week?w.days:w.days.filter(x=>x.n===S.day)).reduce((p,d)=>p+planMetrics(d).series,0);
-  return {week,name:a.name,date,meso:mesoLabel((L0&&L0.meso)||mesoOf(a)),w:w.n,d:S.day,nDays:days.length,kg:all.reduce((p,s)=>p+(+s.kg||0)*(+s.reps||0),0),series:all.length,seriesPlan,reps,min,rpe,rpeOf,maxI,maxV,top,groups} }
+  // para los formatos semanales: kg por día, kg por semana del mesociclo y topsets por semana
+  const byDay=week?days.map(([d,L])=>[dayShort(d),Object.values(L.sets||{}).flat().reduce((p,s)=>p+(+s.kg||0)*(+s.reps||0),0)]).filter(x=>x[1]>0):[];
+  const PW=PLAN().weeks, wkKg=week?PW.map(x=>({n:x.n,real:weekMetrics(x,true).ton||null,plan:weekMetrics(x,false).ton||null})):[], wkTops=week?PW.map(x=>({n:x.n,t:weekTops(x)})):[];
+  return {byDay,wkKg,wkTops,week,name:a.name,date,meso:mesoLabel((L0&&L0.meso)||mesoOf(a)),w:w.n,d:S.day,nDays:days.length,kg:all.reduce((p,s)=>p+(+s.kg||0)*(+s.reps||0),0),series:all.length,seriesPlan,reps,min,rpe,rpeOf,maxI,maxV,top,groups} }
 const fmtDur=m=>m>=60?`${Math.floor(m/60)} H ${m%60} MIN`:`${m} MIN`;
 // en pantallas táctiles la foto se ajusta con los dedos (sin barras)
 try{ if(navigator.maxTouchPoints>0||'ontouchstart' in window) document.documentElement.classList.add('touch') }catch(e){}
-const PHOTO_FMTS=[['clasico','Kg movidos + mejores series'],['grupos','Kg movidos + grupos musculares'],['mixto','Grupos musculares + mejores series'],['minimal','Minimalista']];
+const PHOTO_FMTS=[['clasico','Kg movidos + mejores series'],['grupos','Kg movidos + grupos musculares'],['mixto','Grupos musculares + mejores series'],['minimal','Minimalista'],['semana','Kg movidos + tortas por día y grupos','week'],['progreso','Gráficos: kg por semana y topsets','week']];
+const photoFmts=sc=>PHOTO_FMTS.filter(f=>!f[2]||f[2]===sc);
+const DAYCOL=['#d4ad5e','#c0392b','#5f8fa8','#8fa864','#a58fc4','#c47a3a','#e8e2d0'];
 const cssColor=c=>{ const m=/^var\((--[^)]+)\)$/.exec(c); return m?getComputedStyle(document.documentElement).getPropertyValue(m[1]).trim()||'#888':c };
 async function loadPhoto(file){ if(!file) return; flash('Preparando tu foto…');
   try{ const img=await new Promise((ok,ko)=>{ const i=new Image(); i.onload=()=>ok(i); i.onerror=ko; i.src=URL.createObjectURL(file) }); S.photoImg=img; S.photoScale=S.photoScale||100; S.photoFmt=S.photoFmt||'clasico'; await drawPhoto(); S.toast=''; render() }
   catch(e){ console.warn(e); flash('No se pudo abrir esa foto. Prueba con otra.',true) } }
 async function drawPhoto(){ const img=S.photoImg; if(!img) return;
   try{ await Promise.all(['800 100px "Barlow Condensed"','700 40px "Barlow Condensed"','500 30px "IBM Plex Sans"'].map(f=>document.fonts.load(f))) }catch(e){}
-  const c=sessionCard(S.photoScope), fm=S.photoFmt||'clasico', k=(S.photoScale||100)/100, W=1080, H=1920, cv=document.createElement('canvas'); cv.width=W; cv.height=H; const g=cv.getContext('2d');
+  const c=sessionCard(S.photoScope), fm=photoFmts(S.photoScope).some(f=>f[0]===S.photoFmt)?S.photoFmt:'clasico', k=(S.photoScale||100)/100, W=1080, H=1920, cv=document.createElement('canvas'); cv.width=W; cv.height=H; const g=cv.getContext('2d');
   const sc=Math.max(W/img.naturalWidth,H/img.naturalHeight), iw=img.naturalWidth*sc, ih=img.naturalHeight*sc; g.drawImage(img,(W-iw)/2,(H-ih)/2,iw,ih);
   const acc=getComputedStyle(document.documentElement).getPropertyValue('--gold').trim()||'#d4ad5e';
   const D='"Barlow Condensed","Arial Narrow",sans-serif', B='"IBM Plex Sans",system-ui,sans-serif';
@@ -550,13 +555,47 @@ async function drawPhoto(){ const img=S.photoImg; if(!img) return;
     legItems.forEach(([gr,v])=>{ g.fillStyle=cssColor(MCOL[gr]||'#888'); g.beginPath(); g.arc(cx+R+70,ly-12,13,0,2*Math.PI); g.fill();
       txt(fit(gr,W-(cx+R+98)-30,`600 36px ${B}`),ly,`600 36px ${B}`,'#fff',0,'left',cx+R+98); txt(`${fmt(v)} kg · ${fmt(100*v/tot)}%`,ly+32,`500 26px ${B}`,'rgba(255,255,255,.75)',0,'left',cx+R+98); ly+=LH });
     return hh };
+  // torta genérica (kg por día) con leyenda compacta a la derecha
+  const LH2=62, pieH=(R,n)=>Math.max(2*R,n*LH2);
+  const pie=(y0,R,items,title)=>{ const tt=items.reduce((p,q)=>p+q[1],0)||1, hh=pieH(R,items.length), cx=300, cyy=y0+hh/2, lw=R*0.4; let ang=-Math.PI/2;
+    hdr(title,y0-24,700,34,'rgba(255,255,255,.8)',8);
+    items.forEach(([l,v,col])=>{ const a2=ang+2*Math.PI*v/tt; g.beginPath(); g.arc(cx,cyy,R-lw/2,ang,a2); g.strokeStyle=cssColor(col); g.lineWidth=lw; g.stroke(); ang=a2 });
+    let ly=cyy-(items.length*LH2)/2+30;
+    items.forEach(([l,v,col])=>{ g.fillStyle=cssColor(col); g.beginPath(); g.arc(cx+R+60,ly-10,11,0,2*Math.PI); g.fill();
+      txt(fit(l,W-(cx+R+84)-30,`600 30px ${B}`),ly,`600 30px ${B}`,'#fff',0,'left',cx+R+84); txt(`${fmt(v)} kg · ${fmt(100*v/tt)}%`,ly+28,`500 23px ${B}`,'rgba(255,255,255,.75)',0,'left',cx+R+84); ly+=LH2 });
+    return hh };
+  // gráfico de líneas autoexplicativo: título, qué mide, eje con unidades, semanas abajo, leyenda y valor final de cada línea
+  const CH=330, legRows=n=>Math.ceil(n/2), lineH=n=>130+CH+56+legRows(n)*46;
+  const lineCv=(y0,title,sub,labels,series,cur)=>{ hdr(title,y0,700,40,'#fff',6); sub.forEach((t,i)=>txt(fit(t,W-140,`500 25px ${B}`),y0+40+i*32,`500 25px ${B}`,'rgba(255,255,255,.8)',0));
+    const X0=170,X1=W-90,T=y0+130,Bt=T+CH, vals=series.flatMap(sr=>sr.vals.filter(v=>v!=null));
+    if(!vals.length){ txt('Aún sin datos registrados',T+CH/2,`500 30px ${B}`,'rgba(255,255,255,.7)',0); return lineH(series.length) }
+    // eje con números redondos (1, 2, 2,5 o 5 × 10ⁿ)
+    let lo=Math.min(...vals), hi=Math.max(...vals); const raw=((hi-lo)||hi*0.2||10)/4, p10=10**Math.floor(Math.log10(raw)), stp=p10*[1,2,2.5,5,10].find(m=>m*p10>=raw);
+    lo=Math.max(0,Math.floor(lo/stp)*stp-(lo%stp===0?stp:0)); hi=Math.ceil(hi/stp)*stp+(hi%stp===0?stp:0);
+    const xs=i=>labels.length===1?(X0+X1)/2:X0+i*(X1-X0)/(labels.length-1), ys=v=>Bt-(v-lo)/(hi-lo)*CH, big=hi>=10000, fy=v=>big?fmt(v/1000,Math.round(v/100)%10?1:0)+' t':fmt(v);
+    g.lineWidth=2; for(let v=lo;v<=hi+1e-9;v+=stp){ const yy=ys(v); g.strokeStyle='rgba(255,255,255,.18)'; g.beginPath(); g.moveTo(X0,yy); g.lineTo(X1,yy); g.stroke(); txt(fy(v),yy+9,`500 24px ${B}`,'rgba(255,255,255,.7)',0,'right',X0-16) }
+    const ci=labels.indexOf(cur); if(ci>=0){ g.fillStyle='rgba(255,255,255,.08)'; g.fillRect(xs(ci)-28,T,56,CH) }
+    labels.forEach((l,i)=>txt('S'+l,Bt+44,`700 28px ${D}`,i===ci?acc:'rgba(255,255,255,.75)',2,'center',xs(i)));
+    series.forEach(sr=>{ const col=cssColor(sr.col), pts=sr.vals.map((v,i)=>v==null?null:[xs(i),ys(v)]).filter(Boolean); if(!pts.length) return;
+      g.setLineDash(sr.dash?[16,12]:[]); g.strokeStyle=col; g.lineWidth=sr.dash?4:6; g.lineJoin='round'; g.beginPath(); pts.forEach(([x,y],i)=>i?g.lineTo(x,y):g.moveTo(x,y)); g.stroke(); g.setLineDash([]);
+      pts.forEach(([x,y])=>{ g.beginPath(); g.arc(x,y,sr.dash?7:9,0,2*Math.PI); g.fillStyle=sr.dash?'#111':col; g.fill(); g.lineWidth=3; g.strokeStyle=col; g.stroke() });
+      if(!sr.dash){ const li=sr.vals.map((v,i)=>v==null?-1:i).filter(i=>i>=0).pop(); txt(fy(sr.vals[li]),ys(sr.vals[li])-20,`700 26px ${D}`,col,1,'center',xs(li)) } });
+    let ly=Bt+100; series.forEach((sr,i)=>{ const lx=i%2?W/2+20:110; if(i%2===0&&i) ly+=46; const col=cssColor(sr.col);
+      g.setLineDash(sr.dash?[10,7]:[]); g.strokeStyle=col; g.lineWidth=sr.dash?4:6; g.beginPath(); g.moveTo(lx,ly-10); g.lineTo(lx+46,ly-10); g.stroke(); g.setLineDash([]);
+      txt(fit(sr.name,W/2-110,`500 27px ${B}`),ly,`500 27px ${B}`,'#fff',0,'left',lx+60) });
+    return lineH(series.length) };
+  const tsSeries=TSCAT.filter(([k])=>c.wkTops.some(x=>x.t[k])).map(([k,,col,v])=>({name:k,col,dash:!!v,vals:c.wkTops.map(x=>x.t[k]?x.t[k].rm:null)}));
+  const kgSeries=[{name:'Kg reales levantados',col:acc,vals:c.wkKg.map(x=>x.real)},{name:'Kg planificados',col:'#e8e2d0',dash:true,vals:c.wkKg.map(x=>x.plan)}];
+  const wLabels=c.wkKg.map(x=>x.n);
   // medir el bloque para centrarlo y poder escalarlo desde su centro
-  const blockH=()=>{ if(fm==='minimal') return 50+42+230+60+70+(c.maxI?56:0)+150; let h=62+58+64+(fm==='mixto'?60:245)+(fm==='mixto'?0:72+86)+(fm==='mixto'?donutH(250)+40:0)+80+66*((c.maxI?1:0)+(c.maxV?1:0));
+  const blockH=()=>{ if(fm==='semana') return 184+320+80+(c.byDay.length?90+pieH(150,c.byDay.length)+30:0)+(c.groups.length?90+pieH(150,Math.min(8,c.groups.length))+30:0)+170;
+    if(fm==='progreso') return 184+90+lineH(2)+50+lineH(tsSeries.length||1)+170;
+    if(fm==='minimal') return 50+42+230+60+70+(c.maxI?56:0)+150; let h=62+58+64+(fm==='mixto'?60:245)+(fm==='mixto'?0:72+86)+(fm==='mixto'?donutH(250)+40:0)+80+66*((c.maxI?1:0)+(c.maxV?1:0));
     if(fm==='grupos'&&c.groups.length) h+=90+donutH(190)+30; else if(c.top.length) h+=16+70+68*c.top.length; return h+200 };
   const bh=blockH(), top0=Math.max(140,(H-bh)/2+40), cy=top0+bh/2;
   g.fillStyle='rgba(0,0,0,.28)'; g.fillRect(0,0,W,H);
   const ox=S.photoX||0, oy=S.photoY||0; g.save(); g.translate(W/2+ox,cy+oy); g.scale(k,k); g.translate(-W/2,-cy);
-  const sh=fm==='minimal'?.4:.58, gr=g.createLinearGradient(0,top0-160,0,top0+bh+40); gr.addColorStop(0,'rgba(0,0,0,0)'); gr.addColorStop(.15,`rgba(0,0,0,${sh})`); gr.addColorStop(.85,`rgba(0,0,0,${sh})`); gr.addColorStop(1,'rgba(0,0,0,0)'); g.fillStyle=gr; g.fillRect(-W,top0-160,3*W,bh+200);
+  const sh=fm==='minimal'?.4:fm==='progreso'||fm==='semana'?.72:.58, gr=g.createLinearGradient(0,top0-160,0,top0+bh+40); gr.addColorStop(0,'rgba(0,0,0,0)'); gr.addColorStop(.15,`rgba(0,0,0,${sh})`); gr.addColorStop(.85,`rgba(0,0,0,${sh})`); gr.addColorStop(1,'rgba(0,0,0,0)'); g.fillStyle=gr; g.fillRect(-W,top0-160,3*W,bh+200);
   let y=top0;
   // las líneas del encabezado se achican si al agrandar no caben en el ancho visible
   const vis=Math.min(W-120,W/k-60), fsz=(t,w,px,ls)=>{ g.font=`${w} ${px}px ${D}`; const tw=g.measureText(t).width+ls*t.length; return tw<=vis?px:Math.floor(px*vis/tw) };
@@ -571,6 +610,15 @@ async function drawPhoto(){ const img=S.photoImg; if(!img) return;
     hdr([`${c.series} ${c.series===1?'SERIE':'SERIES'}`,`${c.reps} REPS`,c.rpe!=null?`RPE ${fmt(c.rpe,1)}`:''].filter(Boolean).join(' · '),y,600,40,'#fff',4);
     if(c.maxI){ y+=56; hdr(`TOP SET · ${c.maxI.name.toUpperCase()} ${fmt(+c.maxI.best.kg,1)} KG × ${c.maxI.best.reps}${at(c.maxI.best)}`,y,600,32,acc,3) }
     if(lg){ const lw=110, lh=lw*lg.naturalHeight/lg.naturalWidth; g.globalAlpha=.9; g.drawImage(lg,(W-lw)/2,y+40,lw,lh); g.globalAlpha=1 }
+  } else if(fm==='semana'||fm==='progreso'){
+    hdr(String(c.name).toUpperCase(),y,800,74,'#fff',12); y+=62; hdr(c.date,y,700,46,'#fff',8); y+=58; hdr('TEAM POWEROSSO',y,600,34,acc,12); y+=64; hdr(sesTxt,y,700,42,'rgba(255,255,255,.85)',8);
+    if(fm==='semana'){ y+=190; txt(fmt(c.kg),y,`800 170px ${D}`,acc,2); y+=60; txt('KG MOVIDOS EN LA SEMANA',y,`700 42px ${D}`,acc,10); y+=70;
+      hdr([`${c.series} ${c.series===1?'SERIE':'SERIES'}`,`${c.reps} REPS`,c.rpe!=null?`RPE ${fmt(c.rpe,1)}`:''].filter(Boolean).join(' · '),y,700,44,'#fff',4); y+=80;
+      if(c.byDay.length){ y+=90; y+=pie(y,150,c.byDay.map(([l,v],i)=>[l,v,DAYCOL[i%DAYCOL.length]]),'KG MOVIDOS POR DÍA')+30 }
+      if(c.groups.length){ y+=90; y+=pie(y,150,c.groups.slice(0,8).map(([gr,v])=>[gr,v,MCOL[gr]||'#888']),'GRUPOS MUSCULARES DE LA SEMANA')+30 } }
+    else { y+=90; y+=lineCv(y,'KG MOVIDOS POR SEMANA',['Total de kilos (peso × reps) de cada semana del mesociclo.','Línea llena = real · punteada = planificado.'],wLabels,kgSeries,c.w)+50;
+      y+=lineCv(y,'AVANCE DE TOPSETS · 1RM ESTIMADO (KG)',['Mejor serie de cada básico por semana: peso × reps × 0,03 + peso.','Línea punteada = variante (pausa, búfalo, block pull…).'],wLabels,tsSeries,c.w) }
+    if(lg){ const lw=150, lh=lw*lg.naturalHeight/lg.naturalWidth; g.drawImage(lg,(W-lw)/2,y+10,lw,lh) }
   } else {
   hdr(String(c.name).toUpperCase(),y,800,74,'#fff',12); y+=62;
   hdr(c.date,y,700,46,'#fff',8); y+=58;
@@ -578,7 +626,7 @@ async function drawPhoto(){ const img=S.photoImg; if(!img) return;
   hdr(sesTxt,y,700,42,'rgba(255,255,255,.85)',8);
   if(fm==='mixto'&&c.groups.length){ y+=60; y+=donut(y,250,true)+40 }
   else { y+=245; txt(fmt(c.kg),y,`800 230px ${D}`,acc,2); y+=72; txt('KG MOVIDOS',y,`700 54px ${D}`,acc,18); y+=86 }
-  hdr([`${c.series}/${c.seriesPlan} SERIES`,`${c.reps} REPS`,c.rpe!=null?`RPE ${fmt(c.rpe,1)}`:''].filter(Boolean).join(' · '),y,700,50,'#fff',4); y+=80;
+  hdr([`${c.series} ${c.series===1?'SERIE':'SERIES'}`,`${c.reps} REPS`,c.rpe!=null?`RPE ${fmt(c.rpe,1)}`:''].filter(Boolean).join(' · '),y,700,50,'#fff',4); y+=80;
   const pill=(lab,desc)=>{ g.font=`800 32px ${D}`; try{g.letterSpacing='4px'}catch(e){} const pw=g.measureText(lab).width+36; try{g.letterSpacing='0px'}catch(e){} const x0=70;
     g.fillStyle=acc; g.beginPath(); (g.roundRect?g.roundRect(x0,y-36,pw,48,8):g.rect(x0,y-36,pw,48)); g.fill(); txt(lab,y,`800 32px ${D}`,'#111',4,'left',x0+18);
     txt(fit(desc,W-x0-pw-90,`500 30px ${B}`),y-2,`500 30px ${B}`,'#fff',0,'left',x0+pw+20); y+=66 };
@@ -620,7 +668,7 @@ const photoIns=sc=>`<div class="btns"><label class="btn goldb sm" style="positio
 function photoCardHtml(sc){ const on=S.photoUrl&&S.photoScope===sc;
   return `<div class="card"><div class="eyebrow" style="margin-bottom:6px">${sc==='week'?'Foto de tu semana':'Foto de tu entrenamiento'}</div><div class="small muted" style="margin-bottom:10px">Toma o elige una foto y la app le pone tus datos ${sc==='week'?'de la semana':'de hoy'}. Luego la guardas en tu teléfono o la compartes.</div>
     ${on?`<canvas id="photo-prev" role="img" aria-label="Tu foto con el resumen" style="width:100%;aspect-ratio:9/16;display:block;border-radius:12px;border:1px solid var(--line);touch-action:none;cursor:grab"></canvas>
-    <label class="f pfmt-lbl" style="margin-top:10px">Formato de la foto<select id="photo-fmt" class="pfmt-sel">${PHOTO_FMTS.map(([k,l])=>`<option value="${k}"${(S.photoFmt||'clasico')===k?' selected':''}>${l}</option>`).join('')}</select></label>
+    <label class="f pfmt-lbl" style="margin-top:10px">Formato de la foto<select id="photo-fmt" class="pfmt-sel">${photoFmts(sc).map(([k,l])=>`<option value="${k}"${(S.photoFmt||'clasico')===k?' selected':''}>${l}</option>`).join('')}</select></label>
     <div class="small muted" style="margin-top:6px">Arrastra con un dedo para mover el contenido y pellizca con dos para agrandarlo o achicarlo.<span class="pbars"> También puedes usar las barras.</span></div>
     <div class="pbars"><label class="f" style="margin-top:10px">Tamaño <span id="pscale-lbl">${S.photoScale||100}%</span><input type="range" id="photo-scale" min="40" max="160" step="1" value="${S.photoScale||100}" style="width:100%"></label>
     <label class="f">Mover a los lados<input type="range" id="photo-x" min="-450" max="450" step="5" value="${S.photoX||0}" style="width:100%"></label>
@@ -724,6 +772,7 @@ function vDash(){const w=wkObj(S.week), rm=weekMetrics(w,true), pm=weekMetrics(w
   ${kpis(rm,pm)}
   <div class="card"><div class="eyebrow" style="margin-bottom:2px">Grupos musculares (tonelaje)</div><div class="small muted" style="margin-bottom:8px">Sentadilla, banca, peso muerto y press militar reparten sus kilos entre los músculos que trabajan, según la tabla de ponderaciones.</div>
   <div class="chips" style="margin-bottom:10px"><button class="chip" data-pieday="0" aria-pressed="${!pd}">Semana</button>${w.days.map(d=>`<button class="chip" data-pieday="${d.n}" aria-pressed="${pd===d}">${dayShort(d)}</button>`).join('')}</div>${pieMuscles(pieSel)}</div>
+  <div class="card"><div class="eyebrow" style="margin-bottom:2px">Kg totales movidos por semana</div><div class="small muted" style="margin-bottom:8px">Total de kilos (peso × reps) de cada semana del mesociclo, real vs planificado.</div>${weekKgChart(w.n)}</div>
   <div class="card"><div class="eyebrow" style="margin-bottom:2px">Avance de topsets</div><div class="small muted" style="margin-bottom:10px">1RM estimado (peso × reps × 0,03 + peso) de la mejor serie de cada básico por semana. Línea punteada = variante (pausa, búfalo, block pull…).</div>${topsetChart(w.n)}</div>
   ${rpeCards(S.aid,mesoOf(ATH()),w.n)}
   <div class="card"><div class="row"><span class="eyebrow">Tonelaje por día</span><span class="legend"><span><i style="background:var(--surface-2);outline:1px solid var(--line)"></i>Plan</span><span><i style="background:var(--red)"></i>Real</span></span></div>${dayChart(w)}</div>
@@ -747,6 +796,20 @@ const tsCat=x=>{ const b=basicOf(x.name), t=normU(x.name); if(!b||b==='PRESS MIL
   const l=b==='SENTADILLA'?'Sentadilla':b==='PRESS BANCA'?'Banca':'Peso muerto'; return TSVAR.test(t.replace(/\bCOMP\w*/,''))&&!/\bCOMP/.test(t)?l+' variante':l };
 function weekTops(w){ const o={}; w.days.forEach(d=>{ const L=dayLog(w.n,d.n); if(!L) return; d.exercises.forEach((x,i)=>{ const c=tsCat(x); if(!c) return;
   ((L.sets||{})[i]||[]).forEach(st=>{ const r=rm1(st.kg,st.reps); if(r&&(!o[c]||r>o[c].rm)) o[c]={rm:r,kg:+st.kg,reps:+st.reps,name:title(x.name),rpe:st.rpe??st.rpePlan} }) }) }); return o }
+// kg totales movidos por semana: real vs planificado
+function weekKgChart(cur){ const W=PLAN().weeks, rows=W.map(w=>({n:w.n,real:weekMetrics(w,true).ton||null,plan:weekMetrics(w,false).ton||null}));
+  const vals=rows.flatMap(r=>[r.real,r.plan]).filter(v=>v!=null); if(!vals.length) return `<div class="muted small">Sin kilos planificados ni registrados.</div>`;
+  const VW=320,VH=180,PL=34,PR=10,PT=14,PB=22, q=Math.max(...vals)/4, p10=10**Math.floor(Math.log10(q||1)), stp=p10*[1,2,2.5,5,10].find(m=>m*p10>=q), hi=stp*4, n=rows.length, xs=i=>PL+(n===1?(VW-PL-PR)/2:i*(VW-PL-PR)/(n-1)), ys=v=>PT+(hi-v)/hi*(VH-PT-PB);
+  let g=''; for(let k=0;k<=4;k++){ const v=stp*k; g+=`<line x1="${PL}" x2="${VW-PR}" y1="${ys(v)}" y2="${ys(v)}" stroke="var(--line)"/><text x="${PL-4}" y="${ys(v)+3}" font-size="9" text-anchor="end" fill="var(--muted)" font-family="IBM Plex Mono,monospace">${fmt(v/1000,v%1000?1:0)}t</text>` }
+  const ci=rows.findIndex(r=>r.n===cur); if(ci>=0) g+=`<rect x="${xs(ci)-11}" y="${PT}" width="22" height="${VH-PT-PB}" rx="4" fill="var(--gold)" opacity=".12"/>`;
+  g+=rows.map((r,i)=>`<text x="${xs(i)}" y="${VH-6}" font-size="10" text-anchor="middle" fill="${i===ci?'var(--gold)':'var(--muted)'}" font-family="IBM Plex Mono,monospace">S${r.n}</text>`).join('');
+  const seg=k=>rows.map((r,i)=>r[k]!=null?`${xs(i)},${ys(r[k])}`:null).filter(Boolean).join(' ');
+  g+=`<polyline points="${seg('plan')}" fill="none" stroke="var(--muted)" stroke-width="2" stroke-dasharray="5 4"/><polyline points="${seg('real')}" fill="none" stroke="var(--gold)" stroke-width="2.5" stroke-linejoin="round"/>`;
+  g+=rows.map((r,i)=>`${r.plan!=null?`<circle cx="${xs(i)}" cy="${ys(r.plan)}" r="3" fill="var(--surface)" stroke="var(--muted)" stroke-width="2"><title>Plan ${fmt(r.plan)} kg</title></circle>`:''}${r.real!=null?`<circle cx="${xs(i)}" cy="${ys(r.real)}" r="4" fill="var(--gold)" stroke="var(--surface)" stroke-width="1.5"><title>Real ${fmt(r.real)} kg</title></circle>`:''}`).join('');
+  const done=rows.filter(r=>r.real!=null);
+  return `<svg viewBox="0 0 ${VW} ${VH}" width="100%" role="img" aria-label="Kilos movidos por semana, real y planificado">${g}</svg>
+  <div class="legend" style="margin-top:4px"><span><i style="background:transparent;outline:2px dashed var(--muted);outline-offset:-2px"></i>Planificado</span><span><i style="background:var(--gold)"></i>Real</span></div>
+  ${done.length?`<div class="tbl" style="margin-top:8px"><table><thead><tr><th>Semana</th><th>Plan</th><th>Real</th><th>%</th></tr></thead><tbody>${done.map(r=>`<tr${r.n===cur?' style="color:var(--gold)"':''}><td>S${r.n}</td><td class="num pl">${r.plan!=null?fmt(r.plan):'—'}</td><td class="num"><b>${fmt(r.real)}</b></td><td class="num">${r.plan?fmt(100*r.real/r.plan)+'%':'—'}</td></tr>`).join('')}</tbody></table></div>`:''}` }
 function topsetChart(cur){ const W=PLAN().weeks, data=W.map(w=>({w,t:weekTops(w)})), f=S.tsLift||'';
   const cats=TSCAT.filter(c=>(!f||c[1]===f)&&data.some(d=>d.t[c[0]]));
   const chips=`<div class="chips" style="margin-bottom:10px">${[['','Todos'],['Sentadilla','Sentadilla'],['Banca','Banca'],['Peso muerto','Peso muerto']].map(([k,l])=>`<button class="chip" data-tslift="${k}" aria-pressed="${f===k}">${l}</button>`).join('')}</div>`;
