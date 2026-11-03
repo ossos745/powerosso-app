@@ -32,6 +32,7 @@ powerosso-app/
 │   └── build.py                ← arma index.html
 ├── herramientas/
 │   └── actualizar-powerosso.bat← plantilla del actualizador (CMD + PowerShell)
+├── analizador/index.html       ← COPIA del Analizador IPF (no se genera ni se edita aquí)
 ├── config.js                   ← URL y anon key de Supabase (públicas)
 ├── sw.js                       ← service worker (PWA, caché, avisos push)
 ├── manifest.json               ← PWA instalable
@@ -57,6 +58,8 @@ python3 src/build.py
 
 **Siempre commitear `index.html` regenerado junto con el cambio en `src/`.** GitHub Pages sirve `index.html` tal cual.
 
+**Excepción: `analizador/index.html`.** Es el Analizador IPF, copiado tal cual desde el `index.html` del repo https://github.com/ossos745/analizador-ipf (su fuente vive allá; ahí está también `PUENTE-TEAM-POWEROSSO.md`, que documenta el puente). No pasa por `build.py` y no se edita aquí: para actualizarlo, copiar de nuevo el archivo del otro repo y subir `IPF_V` en `app.src.html` a la versión nueva. Se publica en https://ossos745.github.io/powerosso-app/analizador/.
+
 La única dependencia externa es SheetJS: `https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js`.
 
 ### Modos de almacenamiento (`Store` en app.src.html)
@@ -72,6 +75,7 @@ En modo `supa`, `Store.pull()` corre al inicio, cada 20 s y al volver a la pesta
 ### Acceso por link (`?k=<token>`)
 
 - No hay correo ni contraseña. Cada persona (coach y alumnos) tiene un link `https://ossos745.github.io/powerosso-app/?k=<token>`. El token está en `athletes.token`.
+- La app comparte origen (`https://ossos745.github.io`) y por lo tanto `localStorage` con el Analizador IPF (que usa `ipf.pref`): **toda clave nueva lleva prefijo `powerosso.`**.
 - El token se recuerda en `localStorage` (`powerosso.k`, `powerosso.kc`) para que la PWA instalada abra sin `?k=`. Si el teléfono ya tiene el link del coach, abrir el de un alumno no lo reemplaza.
 - El coach puede ver la app "como alumno" con `#<aid>` en la URL (banner "Estás viendo la app como…").
 - `?ver=obs` abre el panel del coach directo en Observaciones (lo usa el aviso push).
@@ -101,6 +105,7 @@ Reglas de permisos importantes:
 - **Log de un día** (`logs`, id `<aid>~<MESO>~<w>-<d>`): `{aid, meso, w, d, sets:{<índice ejercicio>:[{kg, reps, rpe, t, pr?}]}, done, startedAt, date, trainedAt, finishedAt, updatedAt, rpe (del día), resetAt?}`.
 - **Serie PR**: `pr = {t, file, sheet, row (fila del Excel), kg, reps, rm1, meso, w, d, ex}`.
 - **Preferencias del alumno**: registro especial en `logs` con id **`<aid>~PREFS`** y `{aid, prefs:true, warm, aprox, updatedAt}`. Va en `logs` porque el alumno no puede escribir en `athletes`. Al recorrer logs hay que ignorar los que tengan `prefs:true`.
+- **Evaluación IPF de una serie**: `ipf = {v (versión del analizador), at, ver (VALIDO | NO_VALIDO | NO_CONCLUYENTE, nunca booleano), mot, mov, reps, vSub, vSubB (banda en %), vBaj, dSub, dBaj, rom, romB, perd, prof:{v,b,u}, cal (calibrado: si es false, rom va en px), vid (si el video quedó en el aparato)}`. Solo el resumen va en el set; el video y el paquete completo van a IndexedDB (`powerosso.ipf`, almacén `ipf`, clave `<id del log>:<índice ejercicio>:<n° serie desde 1>`), nunca a Supabase.
 - **Observación** (`notes`): `{aid, meso, w, d, dayLabel, ex, exName, tag, text, at, reviewed, reply, seen}`. Las observaciones del calentamiento usan `ex = -1 - i` (i = índice del ejercicio de movilidad) y `exName = "Calentamiento · …"`.
 - **Día reiniciado**: el log se reemplaza por `{sets:{}, done:false, resetAt}`. Un log sin series y sin `done` cuenta como Pendiente. Las observaciones se mantienen.
 
@@ -131,6 +136,7 @@ Reglas de permisos importantes:
   - **Avance de topsets**: línea por semana del 1RM estimado de la mejor serie de Sentadilla, Banca y Peso muerto, más la variante punteada (`TSVAR` = pausa, búfalo, block, etc.). Filtro por levantamiento y tabla de la semana con Δ.
   - **RPE por semana** (`rpeCards`): promedio semanal y por básico, plan punteado contra real.
 - **Foto del entrenamiento** (día en Resumen, semana en Dashboard): cámara o galería, contenido movible y escalable (dedos en celular, barras en PC). Título = nombre del alumno + fecha, subtítulo "TEAM POWEROSSO" en dorado, luego mesociclo/semana/día. Formatos en `PHOTO_FMTS`: diarios `clasico`, `grupos`, `mixto`, `minimal`; semanales `semana` (kg + torta de kg por día + torta de grupos) y `progreso` (kg por semana real/plan + topsets). Muestra "Máx. intensidad / Máx. volumen", RPE promedio y top set @RPE. No muestra el tiempo de entrenamiento. La foto queda solo en el teléfono (no se sube).
+- **Evaluar en video (Analizador IPF)**: tarjeta en la sesión, solo en sentadilla, banca y peso muerto de competencia (`liftDe(x)` sobre `tsCat`: fuera variantes `TSVAR`, mancuernas y máquinas; el peso muerto sumo sí cuenta). Un chip por serie hecha abre `analizador/` en otra pestaña con el contexto en el fragmento (`origen=powerosso`, `sesion` = id del log, `token` de un solo uso guardado en `localStorage` `powerosso.ipf`; nunca se pasa el `?k=`). La vuelta llega por `postMessage` (valida origen, `app`, `formato ≤ 2`, token y que la serie coincida; trae el `File` del video en `videoArchivo`) o por `#powerosso=<base64url>` (`ipfLeerHash`, corre antes del ruteo y limpia el fragmento, sin video). Guarda `ipf` en el set con `Store.put` y el video en IndexedDB (pide `navigator.storage.persist()`). "Ver video" reproduce solo el rango analizado, muestra el espacio usado y permite borrar el video (las métricas se quedan). El coach ve el veredicto y las métricas en Plan vs real. Si la versión guardada no es `IPF_V`, se muestra un aviso. **Falta**: gráficos IPF en el Dashboard (carga–velocidad, velocidad por semana, pérdida, tiempos, profundidad, historial de veredictos, con la franja de la banda) y limpieza automática de videos viejos.
 - **Tema**: acentos y tonalidades guardados en el teléfono. **Ayuda**. Banner para instalar como app (PWA).
 
 ### Coach (panel)

@@ -78,6 +78,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .pill.ok{color:var(--green);border-color:color-mix(in srgb,var(--green) 45%,transparent)}
 .pill.warn{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 45%,transparent)}
 .pill.red{color:var(--red-fg);border-color:color-mix(in srgb,var(--red-fg) 45%,transparent)}
+.ipfres{display:grid;gap:6px;margin-top:10px}.ipfres .chip{padding:3px 9px;font-size:12px}
 .pill.gold{color:var(--gold);border-color:color-mix(in srgb,var(--gold) 45%,transparent)}
 .btn{display:block;width:100%;border:0;border-radius:12px;padding:14px;background:var(--red);color:var(--on-red);font:700 19px var(--display);letter-spacing:.06em;text-transform:uppercase;cursor:pointer}
 .btn.ghost{background:none;border:1px solid var(--line);color:var(--fg)}
@@ -475,7 +476,7 @@ function vSesion(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day), L=ensur
     <div class="spec"><div><b>${x.sets}</b><span>Series</span></div><div><b>${esc(x.reps||'—')}</b><span>Reps</span></div><div><b>${esc(x.rpe??'—')}</b><span>RPE</span></div><div><b>${fmtRest(x.rest.max)}</b><span>Descanso</span></div></div>
   </div>
   ${toastHtml()}
-  ${done.length?`<div class="setlog">${done.map((s,i)=>`<button class="setchip" data-editset="${i}" aria-pressed="${S.editSet===i}">S${i+1} · ${s.kg!=null&&s.kg!==''?fmt(+s.kg,1)+'×':''}${s.reps}${s.rpe!=null&&s.rpe!==''?' @'+fmt(+s.rpe,1):' · sin RPE'}${isBilbo(x)&&rm1(s.kg,s.reps)?' · 1RM '+fmt(rm1(s.kg,s.reps),1):''}${s.pr?' · PR ✓ 1RM '+fmt(s.pr.rm1,1):''} ✎</button>`).join('')}</div>
+  ${done.length?`<div class="setlog">${done.map((s,i)=>`<button class="setchip" data-editset="${i}" aria-pressed="${S.editSet===i}">S${i+1} · ${s.kg!=null&&s.kg!==''?fmt(+s.kg,1)+'×':''}${s.reps}${s.rpe!=null&&s.rpe!==''?' @'+fmt(+s.rpe,1):' · sin RPE'}${isBilbo(x)&&rm1(s.kg,s.reps)?' · 1RM '+fmt(rm1(s.kg,s.reps),1):''}${s.pr?' · PR ✓ 1RM '+fmt(s.pr.rm1,1):''}${s.ipf?' · 🎥 '+ipfVerTxt(s.ipf):''} ✎</button>`).join('')}</div>
   ${S.editSet!=null&&done[S.editSet]?`<div class="rpebox plain"><div class="q">Modificar RPE · serie ${S.editSet+1} <span class="muted small">(${done[S.editSet].kg!=null&&done[S.editSet].kg!==''?fmt(+done[S.editSet].kg,1)+' kg × ':''}${done[S.editSet].reps} reps)</span></div>
   <div class="rpein"><input id="edit-rpe" type="text" inputmode="decimal" autocomplete="off" placeholder="—" value="${hasR(done[S.editSet].rpe)?esc(done[S.editSet].rpe):''}"><button class="okbtn" data-act="editset-ok" aria-label="Guardar RPE">✓</button></div>
   <div class="row" style="margin-top:8px"><span class="small muted">Deja vacío y aprieta ✓ para quitar el RPE.</span><button class="chip" data-act="editset-cancel">Cancelar</button></div></div>`
@@ -490,6 +491,7 @@ function vSesion(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day), L=ensur
     `<div class="card"><div class="row"><b>Ejercicio completo</b><span class="pill ok">${done.length}/${x.sets} series</span></div>
      ${next?`<div class="small muted" style="margin-top:6px">Siguiente: <b style="color:var(--fg)">${title(next.name)}</b> · ${next.kg!=null?fmt(next.kg,1)+' kg':esc(next.load||'')} · ${next.sets}×${esc(next.reps)}</div>`:''}
      <button class="btn" style="margin-top:10px" data-act="${next?'nextex':'finish'}">${next?'Siguiente ejercicio':'Terminar sesión'}</button></div>`}
+  ${apx?'':ipfCard(x,done)}
   ${obsCard(ns)}
   <div class="btns"><button class="btn ghost sm" data-act="prevex" ${S.ex?'':'disabled'}>Anterior</button><button class="btn ghost sm" data-act="${next?'skip':'finish'}">${next?'Saltar ejercicio':'Terminar sesión'}</button></div>`}
 
@@ -500,6 +502,102 @@ const isPR=x=>/^\W*PR\b/.test(normU(x.name));
 const prHit=(x,kg,reps)=>isPR(x)&&x.kg!=null&&kg>=x.kg-0.001&&reps>=(parseInt(x.reps)||x.repsN||1);
 const draftKey=n=>`${S.aid}|${mesoOf(ATH())}|${S.week}|${S.day}|${S.ex}|${n}`;
 function curDraft(){ const L=ensureLog(), k=draftKey((L.sets[S.ex]||[]).length); if(!S.draft||S.draft.k!==k) S.draft={k}; return S.draft }
+// ---------- analizador IPF: evaluar en video una serie de un básico de competencia ----------
+// El analizador vive en analizador/ (copia de github.com/ossos745/analizador-ipf) y es del mismo origen que la app.
+// Ida: se abre en otra pestaña con el contexto de la serie en el fragmento (#), nunca con el ?k= del alumno.
+// Vuelta: devuelve el paquete por postMessage (con el archivo de video si se pidió) o, si no hay ventana, navegando a la app con #powerosso=<base64url>.
+// En el set queda un resumen chico (ipf); el video y el paquete completo quedan solo en este teléfono (IndexedDB).
+const IPF_V='v24', IPF_ORIGS=['https://ossos745.github.io'];
+const ipfUrl=()=>new URL('analizador/',location.origin+location.pathname).href;
+const IPF_LIFT={'Sentadilla':'squat','Banca':'bench','Peso muerto':'deadlift'};
+// solo sentadilla, banca y peso muerto de competencia (sin variantes, sin mancuernas ni máquinas): el analizador juzga contra el reglamento IPF
+// el peso muerto sumo es de competencia en la IPF (en los topsets cuenta como variante, aquí no)
+const liftDe=x=>{ if(!x) return null; const c=tsCat(x); if(c==='Peso muerto variante'&&/SUMO/.test(normU(x.name))&&!TSVAR.test(normU(x.name).replace(/SUMO/g,''))) return 'deadlift'; return IPF_LIFT[c]||null };
+const IPF_VER={VALIDO:['Válida','ok'],NO_VALIDO:['No válida','red'],NO_CONCLUYENTE:['No concluyente','warn']};
+const ipfVerTxt=f=>(IPF_VER[f&&f.ver]||IPF_VER.NO_CONCLUYENTE)[0];
+// encargos pendientes: token de un solo uso → serie que lo pidió (localStorage con prefijo, porque la vuelta puede llegar en otra pestaña)
+const ipfTok={get(){try{return JSON.parse(localStorage.getItem('powerosso.ipf')||'{}')||{}}catch(e){return {}}},set(o){try{localStorage.setItem('powerosso.ipf',JSON.stringify(o))}catch(e){}}};
+const ipfKey=(lid,ex,i)=>`${lid}:${ex}:${+i+1}`;
+function ipfOpen(ex,i){ const d=wkObj(S.week).days.find(x=>x.n===S.day), x=d&&d.exercises[ex], lift=liftDe(x), L=dayLog(S.week,S.day), st=L&&(L.sets[ex]||[])[i];
+  if(!lift||!st) return;
+  const lid=logId(S.aid,S.week,S.day), now=Date.now(), tok=(crypto.randomUUID?crypto.randomUUID():now.toString(36)+rnd()+rnd()+rnd());
+  const o=ipfTok.get(); for(const k in o) if(!o[k]||now-o[k].t>2*864e5) delete o[k]; o[tok]={lid,ex,i,t:now}; ipfTok.set(o);
+  const p=new URLSearchParams({origen:'powerosso',alumno:S.aid,nombre:ATH().name||'',ejercicio:String(ex),ejNombre:x.name,serie:String(i+1),sesion:lid,
+    fecha:L.date||new Date().toISOString().slice(0,10),lift,token:tok,ret:location.origin+location.pathname+(location.hash||''),cerrar:'1'});
+  const url=ipfUrl()+'#'+p.toString(); let w=null; try{ w=window.open(url,'_blank') }catch(e){}
+  if(!w) location.href=url }   // si el navegador bloquea la pestaña nueva, se abre aquí mismo y vuelve con #powerosso=
+// resumen que va dentro del set (pesa menos de 1 kB; se sincroniza con el resto del registro)
+function ipfResumen(d,vid){ const p=d.parametros||{}, r3=v=>v==null||!isFinite(+v)?null:Math.round(+v*1000)/1000, pr=k=>p[k]&&p[k].prom!=null?r3(p[k].prom):null;
+  const prof=(d.medidas||[]).find(m=>/PROFUNDIDAD/.test(normU(m.nombre)));
+  return {v:String(d.version||''),at:d.enviado||new Date().toISOString(),ver:IPF_VER[d.veredicto&&d.veredicto.estado]?d.veredicto.estado:'NO_CONCLUYENTE',mot:String((d.veredicto&&d.veredicto.motivo)||'').slice(0,240),
+    mov:(d.ejercicio&&d.ejercicio.movimiento)||null,reps:p.reps??null,
+    vSub:pr('velSubida'),vSubB:r3(p.bandaVelPct),vBaj:pr('velBajada'),dSub:pr('durSubida'),dBaj:pr('durBajada'),
+    rom:pr('recorrido'),romB:(()=>{ const b=(d.reps||[]).map(x=>x.recorridoBanda).filter(v=>v!=null); return b.length?r3(Math.max(...b)):null })(),
+    perd:p.perdidaPct?r3(p.perdidaPct.primeraUltima):null,
+    prof:prof&&prof.valor!=null?{v:r3(prof.valor),b:r3(prof.banda),u:prof.unidad||''}:null,
+    cal:!!(d.incertidumbre&&d.incertidumbre.calibrado),vid:!!vid} }
+// IndexedDB: un almacén 'ipf' con clave '<log>:<ejercicio>:<serie>'
+function ipfIdb(mode,fn){ return new Promise((ok,ko)=>{ if(!window.indexedDB) return ko(new Error('sin IndexedDB')); const rq=indexedDB.open('powerosso.ipf',1);
+  rq.onupgradeneeded=()=>rq.result.createObjectStore('ipf'); rq.onerror=()=>ko(rq.error);
+  rq.onsuccess=()=>{ const db=rq.result; let r; try{ const tx=db.transaction('ipf',mode); r=fn(tx.objectStore('ipf')); tx.oncomplete=()=>{db.close(); ok(r&&r.result)}; tx.onerror=tx.onabort=()=>{db.close(); ko(tx.error)} }catch(e){ db.close(); ko(e) } } }) }
+async function ipfGuardarVideo(key,d,file){ try{ navigator.storage&&navigator.storage.persist&&await navigator.storage.persist() }catch(e){}
+  const v=d.video||{}; await ipfIdb('readwrite',s=>s.put({blob:file,nombre:file.name||v.nombre||'',bytes:file.size,tipo:file.type||v.tipo||'',rango:v.rangoFrames||null,fps:v.fps||null,paquete:d,guardado:new Date().toISOString()},key)) }
+// recibe el paquete (por postMessage o por el fragmento); solo lo acepta si su token es uno que esta app entregó y coincide con la serie
+async function ipfRecibir(d,file){
+  if(!d||d.app!=='analizador-ipf'||!(+d.formato<=2)||!d.contexto) return;
+  const o=ipfTok.get(), c=o[d.contexto.token]; if(!c) return;
+  if(c.lid!==d.contexto.sesion||String(c.ex)!==String(d.contexto.ejercicio)||String(c.i+1)!==String(d.contexto.serie)) return;
+  delete o[d.contexto.token]; ipfTok.set(o);
+  const say=(m,err)=>{ S.toast=m; S.toastErr=!!err; softRender() };
+  if(!d.parametros) return say('El analizador no detectó repeticiones: no hay métricas que guardar en la serie.',true);
+  const L0=DATA.logs[c.lid], st0=L0&&((L0.sets||{})[c.ex]||[])[c.i]; if(!st0) return say('Esa serie ya no está registrada (¿se reinició el día?). No se guardó la evaluación.',true);
+  let vid=false, vidErr=false; if(file&&d.video&&d.video.adjunto){ try{ await ipfGuardarVideo(ipfKey(c.lid,c.ex,c.i),d,file); vid=true }catch(e){ vidErr=true } }
+  else { try{ await ipfIdb('readwrite',s=>s.delete(ipfKey(c.lid,c.ex,c.i))) }catch(e){} }   // una evaluación nueva sin video no deja el video de la anterior
+  const L=JSON.parse(JSON.stringify(DATA.logs[c.lid])), st=((L.sets||{})[c.ex]||[])[c.i]; if(!st) return;
+  st.ipf=ipfResumen(d,vid); L.updatedAt=Date.now(); Store.put('logs',c.lid,L);
+  say(`Serie ${c.i+1} evaluada: ${ipfVerTxt(st.ipf)}${st.ipf.vSub!=null?' · '+fmt(st.ipf.vSub,2)+' m/s':''}.${vid?' El video quedó guardado en este teléfono.':vidErr?' No se pudo guardar el video (falta espacio en el teléfono).':''}`,vidErr) }
+window.addEventListener('message',ev=>{ if(ev.origin!==location.origin&&IPF_ORIGS.indexOf(ev.origin)<0) return; const d=ev.data; if(!d||typeof d!=='object'||d.app!=='analizador-ipf') return;
+  const {videoArchivo,...paq}=d; ipfRecibir(paq,videoArchivo instanceof Blob?videoArchivo:null) });
+// vuelta de reserva: la app se abre con #powerosso=<paquete>; se lee antes del ruteo y se limpia el fragmento (que también sirve para #<alumno>)
+function ipfLeerHash(){ const m=/(^#|&)powerosso=([A-Za-z0-9_-]+)/.exec(location.hash||''); if(!m) return;
+  const rest=location.hash.replace(m[0],'').replace(/^#?&/,'#'); history.replaceState(null,'',location.pathname+location.search+(rest&&rest!=='#'?rest:''));
+  try{ const s=m[2].replace(/-/g,'+').replace(/_/g,'/'), bin=atob(s+'='.repeat((4-s.length%4)%4)), b=new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) b[i]=bin.charCodeAt(i); S.ipfHash=JSON.parse(new TextDecoder().decode(b)) }catch(e){} }
+ipfLeerHash();
+function ipfLine(s){ const f=s.ipf; if(!f) return ''; const [t,c]=IPF_VER[f.ver]||IPF_VER.NO_CONCLUYENTE;
+  const vb=f.vSub!=null&&f.vSubB!=null?f.vSub*f.vSubB/100:null;
+  const bits=[f.vSub!=null?`subida ${fmt(f.vSub,2)}${vb!=null?' ± '+fmt(vb,2):''} m/s`:'',f.rom!=null?`recorrido ${fmt(f.rom,1)}${f.romB!=null?' ± '+fmt(f.romB,1):''} ${f.cal?'cm':'px'}`:'',
+    f.perd!=null?`pérdida ${fmt(f.perd,0)} %`:'',f.prof&&f.prof.v!=null?`profundidad ${fmt(f.prof.v,1)}${f.prof.b!=null?' ± '+fmt(f.prof.b,1):''} ${esc(f.prof.u)}`:''].filter(Boolean);
+  return `<span class="pill ${c}">${t}</span> ${bits.join(' · ')}${f.cal?'':' <span class="muted">(sin calibrar)</span>'}${f.v&&f.v!==IPF_V?` <span class="pill warn" title="La app espera ${IPF_V}">analizador ${esc(f.v)}</span>`:''}` }
+function ipfCard(x,done){ if(!liftDe(x)||!done.length) return '';
+  const lid=logId(S.aid,S.week,S.day);
+  return `<div class="card ipfc"><div class="row"><span class="eyebrow">Evaluar en video · reglamento IPF</span></div>
+  <div class="small muted" style="margin:4px 0 8px">Graba la serie y analízala: velocidad, recorrido y si fue válida. El video no se sube a internet: queda en tu teléfono.</div>
+  <div class="chips">${done.map((s,i)=>`<button class="chip" data-ipf="${i}">🎥 ${s.ipf?'Repetir':'Evaluar'} S${i+1}</button>`).join('')}</div>
+  ${done.some(s=>s.ipf)?`<div class="ipfres">${done.map((s,i)=>s.ipf?`<div class="small"><b>S${i+1}</b> ${ipfLine(s)}${s.ipf.vid?` <button class="chip" data-ipfvid="${esc(ipfKey(lid,S.ex,i))}">Ver video</button>`:''}</div>`:'').join('')}</div>`:''}</div>` }
+// ver el video guardado: solo la parte analizada (rango de frames del paquete), en una capa aparte que no toca el render
+async function ipfVer(key){ let v=null; try{ v=await ipfIdb('readonly',s=>s.get(key)) }catch(e){}
+  if(!v||!v.blob){ const ov=document.createElement('div'); ov.className='timer ipfov';
+    ov.innerHTML=`<div class="card" style="width:100%;max-width:420px"><div class="eyebrow">Video de la serie</div><div style="margin:8px 0 12px">El video no está en este teléfono: queda solo en el aparato donde se evaluó la serie. Las métricas sí se ven en todos lados.</div><button class="btn ghost sm">Cerrar</button></div>`;
+    ov.addEventListener('click',e=>{ if(e.target===ov||e.target.closest('button')) ov.remove() }); document.body.appendChild(ov); return }
+  let est=''; try{ const e=navigator.storage&&navigator.storage.estimate&&await navigator.storage.estimate(); if(e&&e.usage!=null) est=`Esta app usa ${fmt(e.usage/1048576,0)} MB de ${fmt(e.quota/1048576,0)} MB disponibles en el teléfono.` }catch(e){}
+  const url=URL.createObjectURL(v.blob), a=v.rango&&v.fps?v.rango[0]/v.fps:0, b=v.rango&&v.fps?(v.rango[1]+1)/v.fps:null;
+  const ov=document.createElement('div'); ov.className='timer ipfov';
+  ov.innerHTML=`<div class="card" style="width:100%;max-width:520px;max-height:100%;overflow:auto"><div class="row"><span class="eyebrow">Video de la serie</span><button class="chip" data-x="close">Cerrar</button></div>
+  <video controls playsinline muted style="width:100%;max-height:60vh;margin-top:8px;border-radius:10px;background:#000"></video>
+  <div class="small muted" style="margin-top:6px">${esc(v.nombre)} · ${fmt(v.bytes/1048576,v.bytes<10485760?1:0)} MB · se reproduce solo la parte analizada.${!(window.matchMedia&&matchMedia('(display-mode: standalone)').matches)?' Instala la app en tu pantalla de inicio para que el teléfono no borre los videos.':''}</div>
+  ${est?`<div class="small muted">${est}</div>`:''}
+  <div class="btns" style="margin-top:8px"><button class="btn ghost sm" data-x="del">Borrar este video</button></div></div>`;
+  const vel=ov.querySelector('video'); vel.src=url; vel.addEventListener('loadedmetadata',()=>{ try{ vel.currentTime=a }catch(e){} });
+  vel.addEventListener('timeupdate',()=>{ if(b!=null&&vel.currentTime>=b){ vel.pause(); vel.currentTime=a } });
+  const close=()=>{ vel.pause(); vel.removeAttribute('src'); vel.load(); URL.revokeObjectURL(url); ov.remove() };
+  ov.addEventListener('click',async e=>{ const t=e.target.closest('[data-x]'); if(e.target===ov) return close(); if(!t) return;
+    if(t.dataset.x==='close') return close();
+    if(t.dataset.x==='del'){ if(!confirm('¿Borrar el video de este teléfono? Las métricas de la serie se mantienen.')) return;
+      try{ await ipfIdb('readwrite',s=>s.delete(key)) }catch(e){}
+      const [lid,ex,n]=key.split(':'); if(DATA.logs[lid]){ const L=JSON.parse(JSON.stringify(DATA.logs[lid])), st=((L.sets||{})[ex]||[])[+n-1]; if(st&&st.ipf){ st.ipf.vid=false; L.updatedAt=Date.now(); Store.put('logs',lid,L) } }
+      close(); S.toast='Video borrado. Las métricas de la serie se mantienen.'; S.toastErr=false; render() } });
+  document.body.appendChild(ov) }
 // ---------- foto con el resumen del entrenamiento ----------
 // datos para la foto: un día (scope 'day') o la semana completa (scope 'week')
 function sessionCard(scope){ const w=wkObj(S.week), a=ATH(), week=scope==='week';
@@ -955,11 +1053,12 @@ function vRpeCoach(){ const f=S.rfilter||'';
       const rpl=+(((o.arr[0]||{}).rpePlan)||(x&&x.rpeN))||null, rre=avgOf(o.arr.filter(s=>hasR(s.rpe)).map(s=>+s.rpe));
       const bil=isBilbo(x)?o.arr.filter(s=>rm1(s.kg,s.reps)).map(s=>`<div class="small gold">Bilbo: ${fmt(+s.kg,1)} kg × ${s.reps} reps → 1RM est. <b>${fmt(rm1(s.kg,s.reps),1)} kg</b></div>`).join(''):'';
       const sp=x?x.sets:null;
-      return `<tr><td>${x?title(x.name):'Ejercicio '+(o.i+1)}${x?`<div class="small muted">plan ${x.sets}×${esc(x.reps||'—')}</div>`:''}${n?`<div class="setlog" style="margin-top:4px">${o.arr.map((s,j)=>`<button class="setchip small" data-cset="${L.id}|${o.i}|${j}" aria-pressed="${S.cset===L.id+'|'+o.i+'|'+j}">S${j+1} ${hasR(s.kg)&&+s.kg?fmt(+s.kg,1)+'×':''}${s.reps??'—'} ${hasR(s.rpe)?'@'+fmt(+s.rpe,1)+(s.rpeBy==='coach'?' (coach)':''):'· poner RPE'}</button>`).join('')}</div>`:''}${bil}</td>
+      return `<tr><td>${x?title(x.name):'Ejercicio '+(o.i+1)}${x?`<div class="small muted">plan ${x.sets}×${esc(x.reps||'—')}</div>`:''}${n?`<div class="setlog" style="margin-top:4px">${o.arr.map((s,j)=>`<button class="setchip small" data-cset="${L.id}|${o.i}|${j}" aria-pressed="${S.cset===L.id+'|'+o.i+'|'+j}">S${j+1} ${hasR(s.kg)&&+s.kg?fmt(+s.kg,1)+'×':''}${s.reps??'—'} ${hasR(s.rpe)?'@'+fmt(+s.rpe,1)+(s.rpeBy==='coach'?' (coach)':''):'· poner RPE'}${s.ipf?' · 🎥 '+ipfVerTxt(s.ipf):''}</button>`).join('')}</div>`:''}${bil}</td>
       <td class="num"><b class="${sp&&n<sp?'under':''}">${n}</b><span class="pl">/${sp??'—'}</span></td><td class="num">${n?pr(kpl,kre,1):`<span class="pl">${kpl!=null?fmt(kpl,1):'—'}</span>`}</td><td class="num">${pr(rpl,rre,1)}</td></tr>`}).join('')}
     </tbody></table></div>
     ${(()=>{ if(!S.cset||!S.cset.startsWith(L.id+'|')) return ''; const [,ci,cj]=S.cset.split('|'), st=((L.sets||{})[ci]||[])[+cj], x=d&&d.exercises[+ci]; if(!st) return '';
       return `<div class="rpebox plain" style="margin-top:10px"><div class="q">RPE real · ${x?title(x.name):'Ejercicio'} · serie ${+cj+1} <span class="muted small">(${hasR(st.kg)&&+st.kg?fmt(+st.kg,1)+' kg × ':''}${st.reps} reps)</span></div>
+      ${st.ipf?`<div class="small" style="margin:-2px 0 8px">Video IPF: ${ipfLine(st)}${st.ipf.mot?`<div class="muted">${esc(st.ipf.mot)}</div>`:''}${st.ipf.vid?` <button class="chip" data-ipfvid="${esc(ipfKey(L.id,ci,+cj))}">Ver video</button>`:''}</div>`:''}
       <div class="rpein"><input id="coach-rpe" type="text" inputmode="decimal" autocomplete="off" placeholder="—" value="${hasR(st.rpe)?esc(st.rpe):''}"><button class="okbtn" data-act="cset-ok" aria-label="Guardar RPE">✓</button></div>
       <div class="row" style="margin-top:8px"><span class="small muted">Queda marcado como puesto por el coach. Vacío + ✓ lo quita.</span><button class="chip" data-act="cset-cancel">Cancelar</button></div></div>` })()}
     <div style="margin-top:8px;text-align:right"><button class="chip" data-dellog="${L.id}">Borrar registro de este día</button></div></div>` };
@@ -1236,6 +1335,8 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
   if(a.cf!==undefined){S.cfilter=a.cf; return render()}
   if(a.per!==undefined){S.period=a.per; return render()}
   if(a.t){ if(!S.timer) return; if(a.t==='skip') return stopTimer(); S.timer.end+=(a.t==='+30'?30:-15)*1000; S.timer.beeped=false; armRestAlarm(); return drawTimer() }
+  if(a.ipf!==undefined){ ipfOpen(S.ex,+a.ipf); return }
+  if(a.ipfvid){ ipfVer(a.ipfvid); return }
   if(a.rpelift){ S.rpeLift=a.rpelift; return render() }
   if(a.statmeso){ S.statMeso=a.statmeso; return render() }
   if(a.tslift!==undefined){ S.tsLift=a.tslift; return render() }
@@ -1363,13 +1464,13 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
   }
 });
 
-function route(){ const h=decodeURIComponent((location.hash||'').slice(1));
+function route(){ ipfLeerHash(); const h=decodeURIComponent((location.hash||'').slice(1));
   stopTimer(); S.toast=''; S.view='dias'; S.tab='entrenar'; S.week=null;
   if(h&&DATA.athletes[h]&&(Store.kind!=='supa'||S.isCoach||h===S.myAid)){S.mode='athlete'; S.aid=h}
   else if(!S.isCoach&&S.myAid&&DATA.athletes[S.myAid]){S.mode='athlete'; S.aid=S.myAid}
   else if(S.isCoach){S.mode='coach'; if(S.ctab!=='notas') S.ctab='alumnos'}
   else S.mode=h&&S.ready<3?'loading':'nolink';
-  render()}
+  render(); if(S.ipfHash){ const d=S.ipfHash; S.ipfHash=null; ipfRecibir(d,null) } }
 window.addEventListener('hashchange',route);
 function setMeso(aid,k){ const at=JSON.parse(JSON.stringify(DATA.athletes[aid])); at.meso=k; Store.put('athletes',aid,at); if(aid===S.aid) S.week=null; flash(`${at.name.split(' ')[0]} ahora está en ${mesoLabel(k)}.`) }
 document.addEventListener('input',e=>{const t=e.target;
@@ -1415,6 +1516,7 @@ function vAyuda(){ const D=(t,body,open)=>`<details${open?' open':''}><summary>$
   ${D('5. RPE real (qué tan dura fue la serie)',`<ul><li>RPE del 1 al 10: 10 = no podías hacer ni una rep más, 9 = te quedaba 1, 8 = te quedaban 2, y así. Se aceptan decimales (8,5).</li><li>Es <b>opcional</b>, pero le sirve mucho a tu coach para ajustar tus cargas.</li><li>Puedes anotarlo en el cuadro que está bajo "Serie hecha" (rellénalo una vez hecha la serie) o en el descanso.</li><li>En el cuadro o en el descanso escribes el número y aprietas <b>✓</b>: queda <b>RPE registrado</b> en el ejercicio. Con <b>Modificar</b> lo cambias.</li><li>Al terminar la sesión te pregunta el <b>RPE del día</b> completo.</li></ul>`)}
   ${D('6. Saltar, volver y series no hechas',`<ul><li><b>Saltar ejercicio</b> sin marcar "Serie hecha" cuenta como que <b>esas series no se hicieron</b>. Tu coach lo ve así en su panel.</li><li>Si hiciste una serie, márcala siempre con "Serie hecha", aunque sea con otro peso o reps.</li><li><b>Anterior</b> te lleva al ejercicio previo para completar series que te faltaron.</li><li>Para <b>corregir el RPE</b> de una serie ya hecha, toca esa serie (S1, S2…) arriba de la tarjeta, escribe el nuevo valor y aprieta ✓.</li><li>Puedes salir y volver: el día queda <b>En curso</b> y retomas donde quedaste.</li></ul>`)}
   ${D('7. Serie Bilbo y 1RM estimado',`<ul><li>En la serie de <b>Press de banca Bilbo</b>, al escribir las reps ves tu <b>1RM estimado</b>: peso × reps × 0,03 + peso.</li><li>Queda guardado y tu coach ve tu avance sesión a sesión.</li></ul>`)}
+  ${D('Evaluar en video (reglamento IPF)',`<ul><li>En <b>sentadilla, press banca y peso muerto de competencia</b> (no en variantes como pausa o cerrada), después de marcar una serie aparece <b>Evaluar en video</b>.</li><li>Toca <b>🎥 Evaluar S1</b> (o la serie que quieras): se abre el analizador en otra pestaña. Carga el video de esa serie, sigue los pasos y aprieta el botón para enviar el resultado a Team Powerosso.</li><li>La serie queda con su veredicto (<b>Válida</b>, <b>No válida</b> o <b>No concluyente</b>), la velocidad de subida y el recorrido, cada uno con su margen de error. Tu coach lo ve en su panel.</li><li>El video <b>no se sube a internet</b>: queda guardado solo en tu teléfono y lo ves con <b>Ver video</b>. Pesa bastante, así que bórralo cuando ya no lo necesites. Instala la app en tu pantalla de inicio para que el teléfono no lo borre solo.</li><li>Es una herramienta de entrenamiento: no reemplaza a un árbitro.</li></ul>`)}
   ${D('8. Observaciones para tu coach',`<ul><li>En cada ejercicio puedes tocar <b>Dejar observación</b>: elige una opción (Intensidad perfecta, Podría hacer más, Muy pesado, Molestia / dolor, Duda técnica) y escribe un comentario si quieres.</li><li>Tu coach recibe el aviso y te puede responder. Las respuestas aparecen en <b>Mis notas</b>.</li></ul>`)}
   ${D('9. Terminar la sesión y resumen',`<ul><li>En el resumen puedes <b>tomar o elegir una foto</b>: la app le pone tus datos de la sesión (kilos movidos, series, reps, RPE promedio, máx. intensidad, máx. volumen y mejores series o grupos musculares). Eliges el formato en el desplegable bajo la foto (incluye uno <b>Minimalista</b>), mueves el contenido arrastrando con un dedo y lo agrandas o achicas pellizcando con dos (o con las barras), y la guardas en tu teléfono o la compartes. El RPE que aparece (promedio y @ en cada serie) es el que anotaste; si no lo anotaste, el planificado. En el <b>Dashboard</b> también puedes hacer una foto con los datos de toda la semana.</li><li>En el último ejercicio aparece <b>Terminar sesión</b>. Luego marcas el RPE del día y ves el <b>resumen</b>: kilos levantados, carga, series efectivas, RPE medio y grupos musculares, comparados con el plan.</li></ul>`)}
   ${D('10. Dashboard',`<ul><li><b>Kilos levantados / tonelaje</b>: suma de kg × reps de tus series.</li><li><b>Carga</b>: tonelaje × RPE / 10.</li><li><b>Series efectivas</b>: series con RPE 7 o más.</li><li>También ves los grupos musculares trabajados, el tonelaje por día y por levantamiento, y tu peso más alto por semana.</li></ul>`)}
