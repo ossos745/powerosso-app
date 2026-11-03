@@ -644,11 +644,11 @@ function ipfLine(s){ const f=s.ipf; if(!f) return ''; const [t,c]=IPF_VER[f.ver]
   const bits=[f.vSub!=null?`subida ${fmt(f.vSub,2)}${vb!=null?' ± '+fmt(vb,2):''} m/s`:'',f.rom!=null?`recorrido ${fmt(f.rom,1)}${f.romB!=null?' ± '+fmt(f.romB,1):''} ${f.cal?'cm':'px'}`:'',
     f.perd!=null?`pérdida ${fmt(f.perd,0)} %`:'',f.prof&&f.prof.v!=null?`profundidad ${fmt(f.prof.v,1)}${f.prof.b!=null?' ± '+fmt(f.prof.b,1):''} ${esc(f.prof.u)}`:''].filter(Boolean);
   return `<span class="pill ${c}">${t}</span> ${bits.join(' · ')}${f.cal?'':' <span class="muted">(sin calibrar)</span>'}${f.v&&f.v!==IPF_V?` <span class="pill warn" title="La app espera ${IPF_V}">analizador ${esc(f.v)}</span>`:''}` }
-function ipfCard(x,done){ if(!liftDe(x)||!done.length) return '';
+function ipfCard(x,done){ if(!liftDe(x)) return '';
   const lid=logId(S.aid,S.week,S.day);
   return `<div class="card ipfc"><div class="row"><span class="eyebrow">Evaluar en video · reglamento IPF</span></div>
   <div class="small muted" style="margin:4px 0 8px">Graba la serie y analízala: velocidad, recorrido y si fue válida. El video no se sube a internet: queda en tu teléfono.</div>
-  <div class="chips">${done.map((s,i)=>`<button class="chip" data-ipf="${i}">🎥 ${s.ipf?'Repetir':'Evaluar'} S${i+1}</button>`).join('')}</div>
+  ${done.length?`<div class="chips">${done.map((s,i)=>`<button class="chip" data-ipf="${i}">🎥 ${s.ipf?'Repetir':'Evaluar'} S${i+1}</button>`).join('')}</div>`:`<div class="small"><b>Graba tu serie</b> y márcala con "Serie hecha": aquí aparece el botón 🎥 para evaluarla.</div>`}
   ${done.some(s=>s.ipf)?`<div class="ipfres">${done.map((s,i)=>s.ipf?`<div class="small"><b>S${i+1}</b> ${ipfLine(s)}${s.ipf.vid?` <button class="chip" data-ipfvid="${esc(ipfKey(lid,S.ex,i))}">Ver video</button>`:''}</div>`:'').join('')}</div>`:''}</div>` }
 // ver el video guardado: solo la parte analizada (rango de frames del paquete), en una capa aparte que no toca el render
 async function ipfVer(key){ let v=null; try{ v=await ipfIdb('readonly',s=>s.get(key)) }catch(e){}
