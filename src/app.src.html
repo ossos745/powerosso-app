@@ -508,7 +508,7 @@ function curDraft(){ const L=ensureLog(), k=draftKey((L.sets[S.ex]||[]).length);
 // Ida: se abre en otra pestaña con el contexto de la serie en el fragmento (#), nunca con el ?k= del alumno.
 // Vuelta: devuelve el paquete por postMessage (con el archivo de video si se pidió) o, si no hay ventana, navegando a la app con #powerosso=<base64url>.
 // En el set queda un resumen chico (ipf); el video y el paquete completo quedan solo en este teléfono (IndexedDB).
-const IPF_V='v25', IPF_ORIGS=['https://ossos745.github.io'];
+const IPF_V='v26', IPF_ORIGS=['https://ossos745.github.io'];
 const ipfUrl=()=>new URL('analizador/',location.origin+location.pathname).href;
 const IPF_LIFT={'Sentadilla':'squat','Banca':'bench','Peso muerto':'deadlift'};
 // solo sentadilla, banca y peso muerto de competencia (sin variantes, sin mancuernas ni máquinas): el analizador juzga contra el reglamento IPF
@@ -547,13 +547,13 @@ function ipfResumen(d,vid){ const p=d.parametros||{}, r3=v=>v==null||!isFinite(+
     fas:(d.fases||[]).slice(0,6).map(f=>[String(f.nombre||'').slice(0,30),r3(f.s)]),
     tr,
     prof:prof&&prof.valor!=null?{v:r3(prof.valor),b:r3(prof.banda),u:prof.unidad||''}:null,
-    cal:!!(d.incertidumbre&&d.incertidumbre.calibrado),vid:!!vid} }
+    cal:!!(d.incertidumbre&&d.incertidumbre.calibrado),vid:!!vid,vidA:!!(vid&&d.video&&d.video.anotado)} }
 // IndexedDB: un almacén 'ipf' con clave '<log>:<ejercicio>:<serie>'
 function ipfIdb(mode,fn){ return new Promise((ok,ko)=>{ if(!window.indexedDB) return ko(new Error('sin IndexedDB')); const rq=indexedDB.open('powerosso.ipf',1);
   rq.onupgradeneeded=()=>rq.result.createObjectStore('ipf'); rq.onerror=()=>ko(rq.error);
   rq.onsuccess=()=>{ const db=rq.result; let r; try{ const tx=db.transaction('ipf',mode); r=fn(tx.objectStore('ipf')); tx.oncomplete=()=>{db.close(); ok(r&&r.result)}; tx.onerror=tx.onabort=()=>{db.close(); ko(tx.error)} }catch(e){ db.close(); ko(e) } } }) }
 async function ipfGuardarVideo(key,d,file){ try{ navigator.storage&&navigator.storage.persist&&await navigator.storage.persist() }catch(e){}
-  const v=d.video||{}; await ipfIdb('readwrite',s=>s.put({blob:file,nombre:file.name||v.nombre||'',bytes:file.size,tipo:file.type||v.tipo||'',rango:v.rangoFrames||null,fps:v.fps||null,paquete:d,guardado:new Date().toISOString()},key)) }
+  const v=d.video||{}; await ipfIdb('readwrite',s=>s.put({blob:file,nombre:file.name||v.nombre||'',bytes:file.size,tipo:file.type||v.tipo||'',rango:v.anotado?(v.rangoArchivo||null):(v.rangoFrames||null),fps:v.fps||null,anotado:!!v.anotado,paquete:d,guardado:new Date().toISOString()},key)) }
 // recibe el paquete (por postMessage o por el fragmento); solo lo acepta si su token es uno que esta app entregó y coincide con la serie
 async function ipfRecibir(d,file){
   if(!d||d.app!=='analizador-ipf'||!(+d.formato<=2)||!d.contexto) return;
@@ -586,7 +586,7 @@ function ipfCard(x,done){ if(!liftDe(x)) return '';
   return `<div class="card ipfc"><div class="row"><span class="eyebrow">Evaluar en video · reglamento IPF</span></div>
   <div class="small muted" style="margin:4px 0 8px">Graba la serie y analízala: velocidad, recorrido y si fue válida. El video no se sube a internet: queda en tu teléfono.</div>
   ${done.length?`<div class="chips">${done.map((s,i)=>`<button class="chip" data-ipf="${i}">🎥 ${s.ipf?'Repetir':'Evaluar'} S${i+1}</button>`).join('')}</div>`:`<div class="small"><b>Graba tu serie</b> y márcala con "Serie hecha": aquí aparece el botón 🎥 para evaluarla.</div>`}
-  ${done.some(s=>s.ipf)?`<div class="ipfres">${done.map((s,i)=>s.ipf?`<div class="small"><b>S${i+1}</b> ${ipfLine(s)}${s.ipf.vid?` <button class="chip" data-ipfvid="${esc(ipfKey(lid,S.ex,i))}">Ver video</button>`:''}</div>`:'').join('')}</div>`:''}</div>` }
+  ${done.some(s=>s.ipf)?`<div class="ipfres">${done.map((s,i)=>s.ipf?`<div class="small"><b>S${i+1}</b> ${ipfLine(s)}${s.ipf.vid?` <button class="chip" data-ipfvid="${esc(ipfKey(lid,S.ex,i))}">${s.ipf.vidA?"Ver video analizado":"Ver video"}</button>`:''}</div>`:'').join('')}</div>`:''}</div>` }
 // ver el video guardado: solo la parte analizada (rango de frames del paquete), en una capa aparte que no toca el render
 async function ipfVer(key){ let v=null; try{ v=await ipfIdb('readonly',s=>s.get(key)) }catch(e){}
   if(!v||!v.blob){ const ov=document.createElement('div'); ov.className='timer ipfov';
@@ -597,7 +597,7 @@ async function ipfVer(key){ let v=null; try{ v=await ipfIdb('readonly',s=>s.get(
   const ov=document.createElement('div'); ov.className='timer ipfov';
   ov.innerHTML=`<div class="card" style="width:100%;max-width:520px;max-height:100%;overflow:auto"><div class="row"><span class="eyebrow">Video de la serie</span><button class="chip" data-x="close">Cerrar</button></div>
   <video controls playsinline muted style="width:100%;max-height:60vh;margin-top:8px;border-radius:10px;background:#000"></video>
-  <div class="small muted" style="margin-top:6px">${esc(v.nombre)} · ${fmt(v.bytes/1048576,v.bytes<10485760?1:0)} MB · se reproduce solo la parte analizada.${!(window.matchMedia&&matchMedia('(display-mode: standalone)').matches)?' Instala la app en tu pantalla de inicio para que el teléfono no borre los videos.':''}</div>
+  <div class="small muted" style="margin-top:6px">${v.anotado?'<b>Video analizado</b> (con los puntos y el seguimiento de la barra) · ':'Video original · '}${esc(v.nombre)} · ${fmt(v.bytes/1048576,v.bytes<10485760?1:0)} MB · se reproduce solo la parte analizada.${!(window.matchMedia&&matchMedia('(display-mode: standalone)').matches)?' Instala la app en tu pantalla de inicio para que el teléfono no borre los videos.':''}</div>
   ${est?`<div class="small muted">${est}</div>`:''}
   <div class="btns" style="margin-top:8px"><button class="btn ghost sm" data-x="del">Borrar este video</button></div></div>`;
   const vel=ov.querySelector('video'); vel.src=url; vel.addEventListener('loadedmetadata',()=>{ try{ vel.currentTime=a }catch(e){} });
@@ -677,7 +677,7 @@ function ipfDetail(o){ const f=o.s.ipf, col=IPF_COL[o.lift]||'var(--gold)', P=f.
   ${f.fas&&f.fas.length?`<div class="eyebrow" style="margin:12px 0 0">Fases</div>${ipfTbl(['Fase','Duración'],f.fas.map(p=>[esc(p[0]),ipfF(p[1],2)+' s']))}`:''}
   ${f.med&&f.med.length?`<div class="eyebrow" style="margin:12px 0 0">Medidas</div>${ipfTbl(['Medida','Valor','Banda'],f.med.map(m=>[esc(m[0]),m[1]==null?'—':fmt(m[1],1)+' '+esc(m[3]||''),m[2]==null?'—':'± '+fmt(m[2],1)]))}`:''}
   ${f.cri&&f.cri.length?`<div class="eyebrow" style="margin:12px 0 4px">Criterios del reglamento</div><div class="ipfcri">${f.cri.map(c=>{ const k={ok:'ok',fail:'red',na:''}[c[3]]??'warn'; return `<div class="small"><span class="pill ${k}">${esc(c[0])} · ${esc({ok:'cumple',fail:'no cumple',inconclusive:'no concluyente',manual:'revisar a mano',na:'no aplica'}[c[3]]||c[3]||'—')}</span> ${esc(c[1])} <span class="muted">(${esc(c[2])})</span></div>` }).join('')}</div>`:''}
-  ${f.vid?`<div style="margin-top:10px"><button class="chip" data-ipfvid="${esc(key)}">Ver video</button></div>`:''}`:''}</div>` }
+  ${f.vid?`<div style="margin-top:10px"><button class="chip" data-ipfvid="${esc(key)}">${f.vidA?"Ver video analizado":"Ver video"}</button></div>`:''}`:''}</div>` }
 function ipfDashCard(w){ const all=ipfAll(); const wk=all.filter(o=>o.w.n===w.n);
   const cnt=k=>wk.filter(o=>o.s.ipf.ver===k).length;
   return `<h2 class="h2" style="margin-top:8px">Resultados de análisis · App validador IPF</h2>
