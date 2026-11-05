@@ -477,6 +477,7 @@ const FIGX={
   chinup:{props:PL(60,24,140,24),head:[[103,46],[103,16]],lines:[['100,60 100,100','100,34 100,74'],['100,100 103,116 92,126','100,74 103,90 92,100'],['100,24 100,42 100,60','100,24 112,40 100,34']]},
   jalon:{props:`<rect x="84" y="100" width="34" height="6" rx="2" ${PB}/>${PL(100,106,100,131)}<circle cx="100" cy="6" r="5" fill="var(--muted)"/>`,bars:[['100,6 100,22','100,6 102,58','var(--muted)',2]],head:[[99,44]],lines:[['98,56 100,100'],['100,100 126,100 126,129 136,129'],['98,58 99,40 100,22','98,58 86,74 102,58']],discs:[[[100,22],[102,58],4,'var(--muted)']]},
   remo:{head:[[133,57]],lines:[['122,62 80,80'],['80,80 98,104 98,129 110,129'],['118,64 118,86 118,106','118,64 100,70 106,90']],discs:[[[118,107],[106,91],11]]},
+  remot:{props:PL(84,110,128,74,8)+PL(100,98,100,131),bars:[['170,128 112,114','170,128 102,100','var(--muted)',4]],head:[[126,58]],lines:[['116,66 74,100'],['74,100 66,114 60,129 70,129'],['112,70 112,92 112,112','112,70 94,78 102,98']],discs:[[[124,117],[116,106],11],[[112,113],[102,99],5,'var(--muted)']]},
   curl:{...PARADO,lines:[PARADO.torso,PARADO.leg,['100,36 100,58 102,80','100,36 100,58 116,44']],discs:[[[102,81],[117,43],5]]},
   fondos:{props:PL(78,64,122,64)+PL(120,64,120,131),head:[[101,18],[104,38]],lines:[['100,30 100,74','102,50 96,94'],['100,74 102,96 88,106','96,94 98,116 84,126'],['100,64 100,48 100,32','100,64 82,54 100,52']]},
   laterales:{head:[[100,20]],lines:[['100,32 100,78'],['100,78 92,104 92,129'],['100,78 108,104 108,129'],['100,36 90,58 88,78','100,36 80,40 60,42'],['100,36 110,58 112,78','100,36 120,40 140,42']],discs:[[[88,80],[58,42],5],[[112,80],[142,42],5]]},
@@ -492,7 +493,7 @@ const FIGX={
 const FIGMAP=[[/PULL[\s-]*APART|FACE\s*PULL|ROTACION EXTERNA/,'pullapart'],[/YTWL/,'ytwli'],[/ABDUC|ADUC|CAMINATA LATERAL/,'abduct'],[/FEMORAL/,'legcurl'],
   [/FRANCES|TRICEP|ROMPECRANEO/,'french'],[/CURL/,'curl'],[/CUADRICEP/,'legext'],[/PRENSA|LEG\s*PRESS/,'prensa'],[/HIP\s*T?H?RUST|PUENTE DE GLUTEO|GLUTE\s*BRIDGE/,'hipthrust'],
   [/BULGAR|ZANCADA|ESTOCADA|LUNGE|SPLIT\s*SQUAT|STEP\s*UP/,'bulgara'],[/RUMANO|\bRDL\b|STIFF/,'rdl'],[/BUENOS\s*DIAS|GOOD\s*MORNING/,'goodmorning'],[/JALON|PULL\s*DOWN|POLEA AL PECHO/,'jalon'],
-  [/CHIN|PULL\s*UPS?\b|DOMINADA/,'chinup'],[/REMO|\bROWS?\b/,'remo'],[/FONDO|\bDIPS?\b/,'fondos'],[/FLEXIONES|PUSH\s*UP|LAGARTIJA/,'pushup'],[/LATERAL|ELEVACION/,'laterales'],
+  [/CHIN|PULL\s*UPS?\b|DOMINADA/,'chinup'],[/REMO\s*T\b|T[\s-]*BAR/,'remot'],[/REMO|\bROWS?\b/,'remo'],[/FONDO|\bDIPS?\b/,'fondos'],[/FLEXIONES|PUSH\s*UP|LAGARTIJA/,'pushup'],[/LATERAL|ELEVACION/,'laterales'],
   [/MILITAR|OVERHEAD|\bOHP\b/,'ohp'],[/BANCA|BENCH|BILBO|PRESS\s*(INCLINADO|PLANO)|PECHO/,'bench'],[/DEADLIFT|DEALDIFT|PESO\s*MUERTO|BLOCK\s*PULL|\bSUMO\b/,'deadlift'],[/SQUAT|SENTADILLA/,'squat']];
 const exFig=x=>{ const t=normU(x&&x.name); const m=FIGMAP.find(([rx])=>rx.test(t)); return m?(FIGX[m[1]]||FIG[m[1]]):null };
 const isLower=x=>/Cuádriceps|Isquios/.test(muscle(x.name));
