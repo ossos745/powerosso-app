@@ -79,6 +79,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .pill.warn{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 45%,transparent)}
 .pill.red{color:var(--red-fg);border-color:color-mix(in srgb,var(--red-fg) 45%,transparent)}
 .ipfd{margin-top:10px}.ipfd .spec b{font-size:18px}.ipfcri{display:grid;gap:6px}
+.evarow{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-top:8px}.evab{background:none;border:2px solid var(--c);color:var(--fg);border-radius:10px;padding:8px 0;font:700 16px var(--mono);cursor:pointer}.evab[aria-pressed="true"]{background:var(--c);color:#140f0c}
 .ipfres{display:grid;gap:6px;margin-top:10px}.ipfres .chip{padding:3px 9px;font-size:12px}
 .pill.gold{color:var(--gold);border-color:color-mix(in srgb,var(--gold) 45%,transparent)}
 .btn{display:block;width:100%;border:0;border-radius:12px;padding:14px;background:var(--red);color:var(--on-red);font:700 19px var(--display);letter-spacing:.06em;text-transform:uppercase;cursor:pointer}
@@ -201,7 +202,7 @@ html.touch .pbars{display:none}
 .pfmt-lbl{position:relative}.pfmt-lbl::after{content:'▾';position:absolute;right:14px;bottom:11px;color:#111;font-size:18px;pointer-events:none}
 .bigt{font:800 34px/1 var(--display);text-transform:uppercase;letter-spacing:.02em;color:var(--gold);margin:4px 0 2px;text-wrap:balance}
 .card.hero{border:1px solid var(--gold);background:linear-gradient(160deg,color-mix(in srgb,var(--gold) 16%,var(--surface)) 0%,var(--surface) 60%)}
-.fig{display:block;width:100%;height:auto}.figbox{background:var(--surface-2);border-radius:12px;padding:6px 10px;margin:10px 0}.figbox .fig{max-height:190px}
+.fig{display:block;width:100%;height:auto}.figbox{background:var(--surface-2);border-radius:12px;padding:6px 10px;margin:10px 0}.figbox .fig{max-height:190px}.figbox.exfig{margin:8px 0 4px}.figbox.exfig .fig{max-height:150px}
 .mini{width:62px;flex:none;background:var(--surface-2);border-radius:8px;padding:2px}
 button.day{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
 .daymenu{border:1px solid var(--red);margin-top:-6px}
@@ -326,7 +327,7 @@ const Store={kind:'local',db:null,q:{},subs:[],token:'',since:null,pulls:0,pendi
   saveLocal(o){try{localStorage.setItem('powerosso.v3',JSON.stringify(o))}catch(e){}},
   listen(coll,cb){ if(this.kind==='db'){ return this.db.collection(coll).onSnapshot(s=>{const o={}; s.docs.forEach(d=>o[d.id]=d.data()); cb(o)}, e=>{flash('Se perdió la conexión con los datos. Recarga la página.',true)}) }
     const f=()=>cb(Object.assign({},this.local()[coll]||{})); this.subs.push(f); f(); },
-  put(coll,id,body){ DATA[coll][id]=body; if(this.kind==='supa'){ const k=coll+'/'+id; this.pending.add(k);
+  put(coll,id,body){ if(coll==='logs') stampLog(body); DATA[coll][id]=body; if(this.kind==='supa'){ const k=coll+'/'+id; this.pending.add(k);
       this.q[k]=(this.q[k]||Promise.resolve()).then(()=>rpc('pw_put',{p_token:this.token,p_coll:coll,p_id:id,p_data:body})).then(()=>true,e=>{ flash(e.status===403||/permiso/.test(e.message)?'No tienes permiso para guardar esto.':'No se pudo guardar. Revisa tu conexión.',true); return false }).finally(()=>this.pending.delete(k)); return this.q[k] }
     if(this.kind==='db'){ const k=coll+'/'+id; this.q[k]=(this.q[k]||Promise.resolve()).then(()=>this.db.collection(coll).doc(id).set(body)).catch(e=>flash(e&&e.code==='invalid_argument'?'No tienes permiso para guardar aquí. Pide a tu coach que te comparta la app como editor.':e&&e.code==='quota_exceeded'?'La base de datos está llena.':'No se pudo guardar. Revisa tu conexión.',true)); return this.q[k] }
     const o=this.local(); (o[coll]=o[coll]||{})[id]=body; this.saveLocal(o); return Promise.resolve() },
@@ -426,7 +427,7 @@ function vDias(){const w=wkObj(S.week), P=PLAN();
     <span class="pill ${done?'ok':L?'warn':''}">${done?'Hecho':L?'En curso':'Pendiente'}</span></button>
     ${S.dayMenu===d.n?`<div class="card daymenu"><div class="row"><span class="eyebrow">${dayName(d)}</span><button class="chip" data-act="daymenu-close">Cerrar</button></div><button class="btn sm" style="margin-top:8px" data-act="day-reset" data-n="${d.n}">Reiniciar día</button><div class="small muted" style="margin-top:6px">Borra las series, kg, reps y RPE anotados de este día y vuelve a quedar pendiente.</div></div>`:''}`}).join('')}
   <div class="small muted" style="margin:-4px 0 10px">Mantén presionado un día para reiniciarlo.</div>
-  <div class="card"><div class="eyebrow" style="margin-bottom:8px">Antes de entrenar</div><div class="chips">${sw('warm','Calentamiento')}${sw('aprox','Aproximaciones')}</div></div>${det}`}
+  <div class="card"><div class="eyebrow" style="margin-bottom:8px">Antes de entrenar</div><div class="chips">${['warm','aprox','gif','ipf'].map(k=>sw(k,PREF_LBL[k])).join('')}</div></div>${det}`}
 
 // vista general de la semana: todos los días en tablas, como la hoja de Excel
 function vSemana(w){ const P=PLAN();
@@ -443,7 +444,50 @@ function vSemana(w){ const P=PLAN();
 function ensureLog(){const id=logId(S.aid,S.week,S.day); if(DATA.logs[id]&&Object.isFrozen(DATA.logs[id])) DATA.logs[id]=JSON.parse(JSON.stringify(DATA.logs[id])); if(!DATA.logs[id]) DATA.logs[id]={aid:S.aid,meso:mesoOf(ATH()),w:S.week,d:S.day,sets:{},done:false,startedAt:Date.now(),date:new Date().toISOString().slice(0,10)}; return DATA.logs[id]}
 function saveLog(){const id=logId(S.aid,S.week,S.day); const L=JSON.parse(JSON.stringify(DATA.logs[id])); L.updatedAt=Date.now(); Store.put('logs',id,L)}
 
-function exNotes(w,d,i){return notesOf(S.aid,mesoOf(ATH())).filter(n=>n.w===w&&n.d===d&&n.ex===i)}
+// ---------- ejercicios anclados por nombre ----------
+// Las series, aproximaciones y ajustes EVA de un día se guardan por posición del ejercicio. Para que un cambio en la planilla
+// (agregar, quitar o mover ejercicios) no las pase a otro ejercicio, cada registro guarda el nombre de cada posición (L.exk)
+// y al leerlo se reacomodan según la planilla actual. Las observaciones se ubican por su exName.
+const exKey=n=>normU(n).replace(/[^A-Z0-9]/g,'');
+const dayKeys=d=>{ const c={}; return (d?d.exercises:[]).map(x=>{ const k=exKey(x.name); c[k]=(c[k]||0)+1; return k+'#'+c[k] }) };
+const baseK=k=>String(k).replace(/#\d+$/,'');
+function dayOfLog(L){ const a=DATA.athletes[L.aid]; if(!a) return null; const P=plansOf(a)[L.meso], w=P&&P.weeks.find(x=>x.n===L.w); return (w&&w.days.find(x=>x.n===L.d))||null }
+// posición actual de algo guardado en la posición i con la clave k: el mismo nombre (y repetición) más cercano
+function idxFor(keys,i,k,taken){ i=+i; const free=j=>!(taken&&taken.has(j)); if(keys[i]===k&&free(i)) return i;
+  let best=-1; const near=ok=>keys.forEach((q,j)=>{ if(ok(q)&&free(j)&&(best<0||Math.abs(j-i)<Math.abs(best-i))) best=j });
+  near(q=>q===k); if(best<0){ const b=baseK(k); near(q=>baseK(q)===b) } return best }
+const PER_EX=['sets','aprox','adj','adjNo'];
+// reacomoda en memoria un registro cuyo día cambió en la planilla (se guarda así con la próxima escritura)
+function alignLog(id){ const L=DATA.logs[id]; if(!L||L.prefs||!L.exk) return; const d=dayOfLog(L); if(!d) return; const keys=dayKeys(d), olds=Object.keys(L.exk);
+  if(olds.every(i=>keys[i]===L.exk[i])) return;
+  const map={}, taken=new Set();
+  olds.filter(i=>keys[i]===L.exk[i]).forEach(i=>{ map[i]=+i; taken.add(+i) });
+  olds.filter(i=>map[i]==null).forEach(i=>{ const j=idxFor(keys,i,L.exk[i],taken); if(j>=0){ map[i]=j; taken.add(j) } });
+  const N=JSON.parse(JSON.stringify(L)); N.exk={};
+  for(const f of PER_EX){ if(!L[f]) continue; N[f]={};
+    for(const [i,v] of Object.entries(L[f])){ const j=(i in L.exk)?map[i]:(taken.has(+i)?null:+i);
+      if(j==null){ const ok=L.exk[i]||('x'+i); N.orph=N.orph||{}; (N.orph[ok]=N.orph[ok]||{})[f]=v; continue } N[f][j]=v } }
+  Object.values(map).forEach(j=>N.exk[j]=keys[j]); DATA.logs[id]=N }
+function alignAll(){ for(const id in DATA.logs) alignLog(id) }
+// registros antiguos (sin L.exk): si las observaciones del día muestran que la planilla cambió, se corren las series igual que ellas
+function fixLegacy(L,keys){ const anc=Object.values(DATA.notes).filter(n=>n.aid===L.aid&&(n.meso||L.meso)===L.meso&&n.w===L.w&&n.d===L.d&&n.ex>=0&&n.exName)
+    .map(n=>[n.ex,idxFor(keys,n.ex,exKey(n.exName)+'#1')]).filter(a=>a[1]>=0).sort((a,b)=>a[0]-b[0]);
+  if(!anc.some(([o,j])=>o!==j)) return;
+  const shift=i=>{ let s=0; for(const [o,j] of anc) if(o<=i) s=j-o; return s };
+  for(const f of PER_EX){ if(!L[f]) continue; const N={};
+    for(const [i,v] of Object.entries(L[f])){ let j=+i+shift(+i); if(j<0||j>=keys.length||j in N) j=+i; N[j]=v } L[f]=N } }
+// anota el nombre de cada posición usada (se llama al guardar un registro)
+function stampLog(L){ if(!L||L.prefs) return L; const d=dayOfLog(L); if(!d) return L; const keys=dayKeys(d);
+  if(!L.exk) fixLegacy(L,keys);
+  const ex={}; for(const f of PER_EX) for(const i of Object.keys(L[f]||{})) if(keys[i]) ex[i]=keys[i]; L.exk=ex; return L }
+// una vez por apertura: guarda el nombre en los registros antiguos que este teléfono puede escribir (no los de un entrenamiento en curso)
+function stampLegacy(){ if(S.stamped) return; S.stamped=true; const now=Date.now();
+  Object.entries(DATA.logs).forEach(([id,L])=>{ if(!L||L.prefs||L.exk||!L.sets||!Object.keys(L.sets).length) return;
+    if(Store.kind==='supa'&&!S.isCoach&&L.aid!==S.myAid) return;
+    if(!L.done&&now-(L.updatedAt||L.trainedAt||0)<6*36e5) return;
+    if(!dayOfLog(L)) return; Store.put('logs',id,{...JSON.parse(JSON.stringify(L))}) }) }
+function noteIdx(n,d){ if(!(n.ex>=0)||!n.exName||!d) return n.ex; return idxFor(dayKeys(d),n.ex,exKey(n.exName)+'#1') }
+function exNotes(w,d,i){ const day=(wkObj(w)||{days:[]}).days.find(x=>x.n===d); return notesOf(S.aid,mesoOf(ATH())).filter(n=>n.w===w&&n.d===d&&(n.ex<0?n.ex===i:noteIdx(n,day)===i)) }
 function noteHtml(n,coach){const cls=/Molestia|pesado/.test(n.tag||'')?'bad':/más/.test(n.tag||'')?'ok':'';
   return `<div class="note ${cls} ${n.reviewed&&coach?'done':''}"><div class="meta">${coach?esc(DATA.athletes[n.aid]?.name||'')+' · ':''}${n.meso?esc(mesoLabel(n.meso))+' · ':''}S${n.w} · ${esc(n.dayLabel||'Día '+n.d)} · ${fdate(n.at)}</div>
   ${n.exName?`<div class="small muted">${title(n.exName)}</div>`:''}
@@ -455,7 +499,9 @@ function noteHtml(n,coach){const cls=/Molestia|pesado/.test(n.tag||'')?'bad':/m�
 // ---------- calentamiento y aproximaciones ----------
 // preferencias por alumno (las cambian el alumno o el coach); se guardan como un registro especial '<aid>~PREFS'
 const prefsId=aid=>`${aid}~PREFS`;
-const prefsOf=(aid=S.aid)=>({warm:true,aprox:true,...(DATA.logs[prefsId(aid)]||{})});
+// gif = animación de cada ejercicio; ipf = tarjeta "Evaluar en video" (apagada por defecto)
+const prefsOf=(aid=S.aid)=>({warm:true,aprox:true,gif:true,ipf:false,...(DATA.logs[prefsId(aid)]||{})});
+const PREF_LBL={warm:'Calentamiento',aprox:'Aproximaciones',gif:'Animaciones de ejercicios',ipf:'Analizador de video'};
 function setPref(k,v){ const id=prefsId(S.aid), pr={...prefsOf(),aid:S.aid,prefs:true,[k]:v,updatedAt:Date.now()}; Store.put('logs',id,pr) }
 // cada figura alterna entre la pose A y la B; 'rot' gira un brazo alrededor del hombro
 const SPL='keyTimes="0;.5;1" calcMode="spline" keySplines=".45 0 .55 1;.45 0 .55 1"';
@@ -463,7 +509,9 @@ function figSvg(f){ const D=f.dur||2.6, an=(attr,a,b)=>a===b?'':`<animate attrib
   const lines=(f.lines||[]).map(([a,b],i)=>`<polyline points="${a}" fill="none"${f===FIG.pullapart&&i===5?' stroke="var(--red)" stroke-width="4"':''}>${an('points',a,b||a)}</polyline>`).join('');
   const [h0,h1]=f.head, head=`<circle r="9" cx="${h0[0]}" cy="${h0[1]}" fill="var(--gold)" stroke="none">${an('cx',h0[0],(h1||h0)[0])}${an('cy',h0[1],(h1||h0)[1])}</circle>`;
   const rot=f.rot?`<g><line x1="${f.rot.cx}" y1="${f.rot.cy}" x2="${f.rot.cx}" y2="${f.rot.cy+f.rot.len}"/>${f.rot.bar?`<line x1="${f.rot.cx-9}" y1="${f.rot.cy+f.rot.len}" x2="${f.rot.cx+9}" y2="${f.rot.cy+f.rot.len}" stroke="var(--muted)" stroke-width="4"/>`:''}<animateTransform attributeName="transform" type="rotate" dur="${f.rot.dur||D}s" repeatCount="indefinite" values="${f.rot.values.map(v=>v+' '+f.rot.cx+' '+f.rot.cy).join(';')}"${f.rot.values.length===3?' '+SPL:''}/></g>`:'';
-  return `<svg class="fig" viewBox="0 0 200 140" role="img" aria-label="Animación del ejercicio"><line x1="10" y1="131" x2="190" y2="131" stroke="var(--line)" stroke-width="2"/>${f.props||''}<g stroke="var(--gold)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">${lines}${rot}${head}</g></svg>` }
+  const bars=(f.bars||[]).map(([a,b,c,w])=>`<polyline points="${a}" fill="none" stroke="${c||'var(--muted)'}" stroke-width="${w||4}" stroke-linecap="round">${an('points',a,b||a)}</polyline>`).join('');
+  const discs=(f.discs||[]).map(([p0,p1,r,c])=>`<circle r="${r||12}" cx="${p0[0]}" cy="${p0[1]}" fill="${c||'var(--red)'}" stroke="var(--surface-2)" stroke-width="2">${an('cx',p0[0],(p1||p0)[0])}${an('cy',p0[1],(p1||p0)[1])}</circle>`).join('');
+  return `<svg class="fig" viewBox="0 0 200 140" role="img" aria-label="Animación del ejercicio"><line x1="10" y1="131" x2="190" y2="131" stroke="var(--line)" stroke-width="2"/>${f.props||''}${bars}<g stroke="var(--gold)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">${lines}${rot}${head}</g>${discs}</svg>` }
 const FIG={
   tobillo:{props:'<line x1="172" y1="30" x2="172" y2="131" stroke="var(--muted)" stroke-width="4"/>',head:[[112,43],[122,43]],lines:[
     ['110,55 105,92','120,55 115,92'],['105,92 138,98 150,128','115,92 155,96 150,128'],['105,92 85,128 60,128','115,92 85,128 60,128'],['110,60 135,70 168,64','120,60 142,72 168,64']]},
@@ -485,6 +533,39 @@ const MOV_TORSO=[
   {name:'Dislocaciones con banda o palo',fig:'disloc',reps:'12 reps',obs:'Agarre ancho; pasa la banda por sobre la cabeza hasta atrás sin doblar los codos.'},
   {name:'Rotación torácica en cuadrupedia',fig:'torax',reps:'8 reps por lado',obs:'Mano en la nuca; gira el codo hacia el techo siguiéndolo con la mirada. La cadera no se mueve.'},
   {name:'Separación de banda (band pull-apart)',fig:'pullapart',reps:'15 reps',obs:'Brazos estirados a la altura del pecho; junta las escápulas al separar la banda.'}];
+// ---------- animaciones de los ejercicios de la planilla (figura de lado; pose A ↔ pose B) ----------
+const PB='fill="var(--muted)"', PL=(x1,y1,x2,y2,w=4,c='var(--muted)')=>`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${c}" stroke-width="${w}" stroke-linecap="round"/>`;
+const BANCO=`<rect x="48" y="96" width="100" height="7" rx="2" ${PB}/>${PL(60,103,60,131)}${PL(136,103,136,131)}`;
+const PARADO={head:[[100,20]],torso:['100,32 100,76'],leg:['100,76 101,103 100,129 112,129']};
+const FIGX={
+  squat:{head:[[100,20],[106,56]],lines:[['100,32 100,76','100,66 76,104'],['100,76 101,103 100,129 112,129','76,104 104,100 100,129 112,129'],['100,36 88,46 98,33','99,69 87,78 97,65']],discs:[[[96,33],[95,65],12]]},
+  deadlift:{head:[[122,62],[98,21]],lines:[['114,70 82,94','98,33 98,77'],['82,94 106,104 98,129 110,129','98,77 100,103 98,129 110,129'],['112,72 111,94 110,116','98,37 99,58 100,79']],discs:[[[110,117],[100,80],13]]},
+  rdl:{head:[[98,21],[135,58]],lines:[['98,33 98,77','124,62 80,74'],['98,77 100,103 98,129 110,129','80,74 96,100 98,129 110,129'],['98,37 99,58 100,79','121,63 121,84 121,105']],discs:[[[100,80],[121,106],13]]},
+  goodmorning:{head:[[98,21],[135,58]],lines:[['98,33 98,77','124,62 80,74'],['98,77 100,103 98,129 110,129','80,74 96,100 98,129 110,129'],['98,37 88,46 96,33','120,64 112,74 118,58']],discs:[[[95,32],[117,56],12]]},
+  bench:{props:BANCO,head:[[58,86]],lines:[['70,90 128,92'],['128,92 150,96 152,129 164,129'],['80,90 80,70 80,50','80,90 66,98 82,78']],discs:[[[80,48],[82,76],12]]},
+  french:{props:BANCO,head:[[58,86]],lines:[['70,90 128,92'],['128,92 150,96 152,129 164,129'],['80,90 74,62 72,40','80,90 74,62 54,70']],discs:[[[72,38],[53,70],6]]},
+  ohp:{head:[[100,36],[97,37]],lines:[['100,48 100,88'],['100,88 101,109 100,129 112,129'],['100,52 110,64 106,46','100,52 101,32 101,12']],discs:[[[106,44],[101,10],10]]},
+  chinup:{props:PL(60,24,140,24),head:[[103,46],[103,16]],lines:[['100,60 100,100','100,34 100,74'],['100,100 103,116 92,126','100,74 103,90 92,100'],['100,24 100,42 100,60','100,24 112,40 100,34']]},
+  jalon:{props:`<rect x="84" y="100" width="34" height="6" rx="2" ${PB}/>${PL(100,106,100,131)}<circle cx="100" cy="6" r="5" fill="var(--muted)"/>`,bars:[['100,6 100,22','100,6 102,58','var(--muted)',2]],head:[[99,44]],lines:[['98,56 100,100'],['100,100 126,100 126,129 136,129'],['98,58 99,40 100,22','98,58 86,74 102,58']],discs:[[[100,22],[102,58],4,'var(--muted)']]},
+  remo:{head:[[133,57]],lines:[['122,62 80,80'],['80,80 98,104 98,129 110,129'],['118,64 118,86 118,106','118,64 100,70 106,90']],discs:[[[118,107],[106,91],11]]},
+  curl:{...PARADO,lines:[PARADO.torso,PARADO.leg,['100,36 100,58 102,80','100,36 100,58 116,44']],discs:[[[102,81],[117,43],5]]},
+  fondos:{props:PL(78,64,122,64)+PL(120,64,120,131),head:[[101,18],[104,38]],lines:[['100,30 100,74','102,50 96,94'],['100,74 102,96 88,106','96,94 98,116 84,126'],['100,64 100,48 100,32','100,64 82,54 100,52']]},
+  laterales:{head:[[100,20]],lines:[['100,32 100,78'],['100,78 92,104 92,129'],['100,78 108,104 108,129'],['100,36 90,58 88,78','100,36 80,40 60,42'],['100,36 110,58 112,78','100,36 120,40 140,42']],discs:[[[88,80],[58,42],5],[[112,80],[142,42],5]]},
+  hipthrust:{props:`<rect x="40" y="88" width="30" height="8" rx="2" ${PB}/>${PL(55,96,55,131)}`,head:[[56,82]],lines:[['66,88 100,116','66,88 104,90'],['100,116 126,100 128,129 140,129','104,90 130,96 128,129 140,129']],discs:[[[100,108],[104,80],12]]},
+  bulgara:{props:`<rect x="34" y="96" width="34" height="7" rx="2" ${PB}/>${PL(50,103,50,131)}`,head:[[100,18],[96,44]],lines:[['100,30 100,74','96,56 94,100'],['100,74 106,101 104,129 116,129','94,100 118,106 104,129 116,129'],['100,74 82,102 62,96','94,100 84,124 62,96'],['100,34 100,56 100,76','96,60 96,82 96,102']],discs:[[[100,78],[96,104],5]]},
+  prensa:{props:PL(36,66,72,120,6)+PL(96,128,170,40,3,'var(--line)'),bars:[['106,86 122,106','120,62 136,82','var(--muted)',5]],head:[[43,70]],lines:[['50,80 76,112'],['52,84 62,100 74,106'],['76,112 92,82 114,96','76,112 102,92 128,72']]},
+  legext:{props:`<rect x="76" y="98" width="40" height="7" rx="2" ${PB}/>${PL(96,105,96,131)}${PL(80,98,76,54)}`,head:[[88,40]],lines:[['88,52 90,96'],['88,56 92,76 100,94'],['90,96 118,96 120,124','90,96 118,96 144,88']],discs:[[[120,122],[142,88],5,'var(--muted)']]},
+  legcurl:{props:`<rect x="36" y="100" width="100" height="7" rx="2" ${PB}/>${PL(48,107,48,131)}${PL(124,107,124,131)}`,head:[[38,88]],lines:[['50,94 100,96'],['52,96 46,104 34,106'],['100,96 126,96 152,96','100,96 126,96 130,72']],discs:[[[150,90],[134,72],5,'var(--muted)']]},
+  ytwli:{head:[[100,20]],lines:[['100,32 100,78'],['100,78 92,104 92,129'],['100,78 108,104 108,129'],['100,36 86,22 74,8','100,36 80,36 58,36'],['100,36 114,22 126,8','100,36 120,36 142,36']]},
+  abduct:{head:[[100,20]],bars:[['94,108 106,108','84,108 116,108','var(--red)',3]],lines:[['100,32 100,78'],['100,36 92,58 94,78'],['100,36 108,58 106,78'],['100,78 94,104 94,129','100,78 84,104 78,129'],['100,78 106,104 106,129','100,78 116,104 122,129']]},
+  pushup:{head:[[54,86],[54,106]],lines:[['66,92 112,108 160,128','66,112 112,120 160,128'],['66,92 66,110 66,129','66,112 82,118 66,129']]}};
+// el orden importa: lo más específico primero
+const FIGMAP=[[/PULL[\s-]*APART|FACE\s*PULL|ROTACION EXTERNA/,'pullapart'],[/YTWL/,'ytwli'],[/ABDUC|ADUC|CAMINATA LATERAL/,'abduct'],[/FEMORAL/,'legcurl'],
+  [/FRANCES|TRICEP|ROMPECRANEO/,'french'],[/CURL/,'curl'],[/CUADRICEP/,'legext'],[/PRENSA|LEG\s*PRESS/,'prensa'],[/HIP\s*T?H?RUST|PUENTE DE GLUTEO|GLUTE\s*BRIDGE/,'hipthrust'],
+  [/BULGAR|ZANCADA|ESTOCADA|LUNGE|SPLIT\s*SQUAT|STEP\s*UP/,'bulgara'],[/RUMANO|\bRDL\b|STIFF/,'rdl'],[/BUENOS\s*DIAS|GOOD\s*MORNING/,'goodmorning'],[/JALON|PULL\s*DOWN|POLEA AL PECHO/,'jalon'],
+  [/CHIN|PULL\s*UPS?\b|DOMINADA/,'chinup'],[/REMO|\bROWS?\b/,'remo'],[/FONDO|\bDIPS?\b/,'fondos'],[/FLEXIONES|PUSH\s*UP|LAGARTIJA/,'pushup'],[/LATERAL|ELEVACION/,'laterales'],
+  [/MILITAR|OVERHEAD|\bOHP\b/,'ohp'],[/BANCA|BENCH|BILBO|PRESS\s*(INCLINADO|PLANO)|PECHO/,'bench'],[/DEADLIFT|DEALDIFT|PESO\s*MUERTO|BLOCK\s*PULL|\bSUMO\b/,'deadlift'],[/SQUAT|SENTADILLA/,'squat']];
+const exFig=x=>{ const t=normU(x&&x.name); const m=FIGMAP.find(([rx])=>rx.test(t)); return m?(FIGX[m[1]]||FIG[m[1]]):null };
 const isLower=x=>/Cuádriceps|Isquios/.test(muscle(x.name));
 // pierna si la mayoría de los ejercicios son de tren inferior, torso si son de tren superior; si está parejo, 2 y 2
 function warmList(d){ const n=d.exercises.length||1, lo=d.exercises.filter(isLower).length/n;
@@ -536,35 +617,40 @@ function aproxHtml(x){ const A=S.aprox&&S.aprox.ex===S.ex?S.aprox:null, W=A?A.kg
     ${table}<button class="btn ghost sm" style="margin-top:10px" data-act="aprox-skip">Saltar aproximaciones</button></div>` }
 function vSesion(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day), L=ensureLog(); if(needWarm(L)) return vWarm(d,L); const x=d.exercises[S.ex]; const done=(L.sets[S.ex]||[]);
   const apx=needAprox(d,L,S.ex);
-  const allDone=done.length>=x.sets, next=d.exercises[S.ex+1], last=done[done.length-1];
-  const kgTxt=x.kg!=null?`<span class="kg num">${fmt(x.kg,1)}</span><span class="u">kg</span>`:`<span class="kg" style="font-size:40px">${esc(x.load?title(x.load):'A criterio')}</span>`;
+  const stopped=stoppedEx(L,S.ex), allDone=done.length>=x.sets||stopped, next=d.exercises[S.ex+1], last=done[done.length-1], A=adjOf(L,S.ex);
+  const miss=evaMissing(d,L), pend=miss?null:evaPend(d,L,S.ex), ev=evaOn(x);
+  const kgTxt=A&&A.kg>0?`<span class="kg num">${fmt(A.kg,1)}</span><span class="u">kg</span><span class="small" style="color:${evaCol(A.eva)}">bajado por EVA ${A.eva}${x.kg!=null?` · plan ${fmt(x.kg,1)} kg`:''}</span>`:x.kg!=null?`<span class="kg num">${fmt(x.kg,1)}</span><span class="u">kg</span>`:`<span class="kg" style="font-size:40px">${esc(x.load?title(x.load):'A criterio')}</span>`;
   const def={kg:last?last.kg??'':(S.aproxW&&S.aproxW.ex===S.ex?S.aproxW.v:(x.kg??'')), reps:last?last.reps:(/AMRAP|>=/i.test(x.reps)?'':(parseInt(x.reps)||'')), rpe:''};
+  if(A&&A.kg>0&&(!last||(last.t||0)<A.t)) def.kg=A.kg;
   const dk=draftKey(done.length), dr=S.draft&&S.draft.k===dk?S.draft:null; if(dr){ if(dr.kg!=null) def.kg=dr.kg; if(dr.reps!=null) def.reps=dr.reps; if(dr.rpe!=null) def.rpe=dr.rpe }
   const lastOk=last&&hasR(last.rpe)&&S.editSet==null;
   const ns=exNotes(S.week,S.day,S.ex);
   return `<div class="row"><button class="btn ghost sm inline" data-act="back">← Días</button><span class="eyebrow">${dayName(d)} · ${title(d.focus)}</span></div>
-  <div class="dots" aria-label="Ejercicio ${S.ex+1} de ${d.exercises.length}">${d.exercises.map((e,i)=>`<i class="${(L.sets[i]||[]).length>=e.sets?'d':i===S.ex?'c':''}"></i>`).join('')}</div>
+  <div class="dots" aria-label="Ejercicio ${S.ex+1} de ${d.exercises.length}">${d.exercises.map((e,i)=>`<i class="${(L.sets[i]||[]).length>=e.sets||stoppedEx(L,i)?'d':i===S.ex?'c':''}"></i>`).join('')}</div>
   <div class="card">
     <div class="row"><span class="eyebrow">Ejercicio ${S.ex+1} de ${d.exercises.length}</span><span class="pill">${x.pct?`${fmt(x.pct*100)} % RM`:LIFT(x.name)==='Accesorio'?'Accesorio':LIFT(x.name)}</span></div>
-    ${apx?`<div class="bigt">Aproximaciones</div><div class="small muted" style="margin-top:2px">para iniciar</div><div class="exname" style="font-size:24px;margin-top:6px">${title(x.name)}</div>${x.kg!=null?`<div class="num" style="font-size:20px;font-weight:700;margin-bottom:4px">${fmt(x.kg,1)} kg <span class="muted small">peso de trabajo planificado</span></div>`:''}`:`<div class="exname">${title(x.name)}</div>`}
+    ${apx?`<div class="bigt">Aproximaciones</div><div class="small muted" style="margin-top:2px">para iniciar</div><div class="exname" style="font-size:24px;margin-top:6px">${title(x.name)}</div>${x.kg!=null?`<div class="num" style="font-size:20px;font-weight:700;margin-bottom:4px">${fmt(x.kg,1)} kg <span class="muted small">peso de trabajo planificado</span></div>`:''}`:`<div class="exname">${title(x.name)}</div>${prefsOf().gif&&exFig(x)?`<div class="figbox exfig">${figSvg(exFig(x))}</div>`:''}`}
     <div class="load"${apx?' style="display:none"':''}>${kgTxt}${x.range?`<span class="muted num small">rango ${esc(x.range)}</span>`:''}</div>
     <div class="spec"><div><b>${x.sets}</b><span>Series</span></div><div><b>${esc(x.reps||'—')}</b><span>Reps</span></div><div><b>${esc(x.rpe??'—')}</b><span>RPE</span></div><div><b>${fmtRest(x.rest.max)}</b><span>Descanso</span></div></div>
   </div>
   ${toastHtml()}
-  ${done.length?`<div class="setlog">${done.map((s,i)=>`<button class="setchip" data-editset="${i}" aria-pressed="${S.editSet===i}">S${i+1} · ${s.kg!=null&&s.kg!==''?fmt(+s.kg,1)+'×':''}${s.reps}${s.rpe!=null&&s.rpe!==''?' @'+fmt(+s.rpe,1):' · sin RPE'}${isBilbo(x)&&rm1(s.kg,s.reps)?' · 1RM '+fmt(rm1(s.kg,s.reps),1):''}${s.pr?' · PR ✓ 1RM '+fmt(s.pr.rm1,1):''}${s.ipf?' · 🎥 '+ipfVerTxt(s.ipf):''} ✎</button>`).join('')}</div>
+  ${done.length?`<div class="setlog">${done.map((s,i)=>`<button class="setchip" data-editset="${i}" aria-pressed="${S.editSet===i}">S${i+1} · ${s.kg!=null&&s.kg!==''?fmt(+s.kg,1)+'×':''}${s.reps}${s.rpe!=null&&s.rpe!==''?' @'+fmt(+s.rpe,1):' · sin RPE'}${isBilbo(x)&&rm1(s.kg,s.reps)?' · 1RM '+fmt(rm1(s.kg,s.reps),1):''}${s.pr?' · PR ✓ 1RM '+fmt(s.pr.rm1,1):''}${s.eva!=null?' · EVA '+s.eva:''}${s.ipf?' · 🎥 '+ipfVerTxt(s.ipf):''} ✎</button>`).join('')}</div>
   ${S.editSet!=null&&done[S.editSet]?`<div class="rpebox plain"><div class="q">Modificar RPE · serie ${S.editSet+1} <span class="muted small">(${done[S.editSet].kg!=null&&done[S.editSet].kg!==''?fmt(+done[S.editSet].kg,1)+' kg × ':''}${done[S.editSet].reps} reps)</span></div>
   <div class="rpein"><input id="edit-rpe" type="text" inputmode="decimal" autocomplete="off" placeholder="—" value="${hasR(done[S.editSet].rpe)?esc(done[S.editSet].rpe):''}"><button class="okbtn" data-act="editset-ok" aria-label="Guardar RPE">✓</button></div>
   <div class="row" style="margin-top:8px"><span class="small muted">Deja vacío y aprieta ✓ para quitar el RPE.</span><button class="chip" data-act="editset-cancel">Cancelar</button></div></div>`
   :`${lastOk?`<div class="rpebox ok"><div class="row"><div><div class="q" style="margin:0">RPE registrado ✓</div><div class="small muted">Serie ${done.length} · ${title(x.name)}</div></div><b class="num" style="font-size:28px">${fmt(+last.rpe,1)}</b></div><button class="btn ghost sm" style="margin-top:8px" data-editset="${done.length-1}">Modificar</button></div>`:''}
   <div class="small muted" style="margin-top:-4px">Toca una serie hecha para modificar su RPE.</div>`}`:''}
+  ${miss?`<div class="card" style="border-color:var(--amber)"><div class="q" style="font-weight:700">Falta tu EVA · serie ${miss.i+1} de ${esc(title(miss.x.name))}</div><div class="small muted">${EVA_Q}. Es obligatorio en este ejercicio.</div>${evaChips(null,'data-seteva',miss.ex+'|'+miss.i+'|')}</div>`:''}
+  ${pend?evaRecHtml(pend):''}
   ${apx?'':ipfCard(x,done)}
   ${apx?aproxHtml(x):!allDone?`<div class="card"><div class="eyebrow" style="margin-bottom:8px">Serie ${done.length+1} de ${x.sets}${/AMRAP|FALLO|>=/i.test(x.reps+x.name)?' · anota cuántas hiciste':''}</div>
     <div class="inputs" style="grid-template-columns:1fr 1fr"><label class="f">kg<input id="in-kg" inputmode="decimal" value="${esc(def.kg)}" data-draft="kg"></label><label class="f">reps<input id="in-reps" inputmode="numeric" value="${esc(def.reps)}" placeholder="?" data-draft="reps"></label></div>
     ${isBilbo(x)?`<div class="bilbo" id="bilbo-1rm">${bilboTxt(def.kg,def.reps)}</div>`:''}
+    ${ev?`<div class="rpebox plain" style="margin-top:12px"><div class="q">${EVA_Q} <span class="muted small" style="font-weight:400">· obligatorio (puedes anotarlo ahora o en el descanso)</span></div>${evaChips(dr&&dr.eva!=null?dr.eva:null,'data-dreva')}</div>`:''}
     <button class="btn" style="margin-top:10px" data-act="set">Serie hecha · descanso ${fmtRest(x.rest.max)}</button>
     ${dr&&dr.rpeOk&&hasR(dr.rpe)?`<div class="rpebox ok" style="margin-top:12px"><div class="row"><div><div class="q" style="margin:0">RPE registrado ✓</div><div class="small muted">Serie ${done.length+1} · se guarda al apretar "Serie hecha"</div></div><b class="num" style="font-size:28px">${fmt(+String(dr.rpe).replace(',','.'),1)}</b></div><button class="btn ghost sm" style="margin-top:8px" data-act="currpe-edit">Modificar</button></div>`
     :`<div class="rpebox plain" style="margin-top:12px"><div class="q">¿Qué tan dura fue la serie del 1 al 10? (RPE REAL)<div class="muted small" style="font-weight:400">Serie ${done.length+1} · Rellenar una vez realizada la serie (opcional)</div></div><div class="rpein"><input id="cur-rpe" type="text" inputmode="decimal" autocomplete="off" placeholder="—" value="${esc(def.rpe)}" data-draft="rpe"><button class="okbtn" data-act="currpe-ok" aria-label="Listo">✓</button></div></div>`}</div>`:
-    `<div class="card"><div class="row"><b>Ejercicio completo</b><span class="pill ok">${done.length}/${x.sets} series</span></div>
+    `<div class="card"><div class="row"><b>${stopped?'Ejercicio detenido por dolor':'Ejercicio completo'}</b><span class="pill ${stopped?'red':'ok'}">${done.length}/${x.sets} series${stopped?` · EVA ${A.eva}`:''}</span></div>
      ${next?`<div class="small muted" style="margin-top:6px">Siguiente: <b style="color:var(--fg)">${title(next.name)}</b> · ${next.kg!=null?fmt(next.kg,1)+' kg':esc(next.load||'')} · ${next.sets}×${esc(next.reps)}</div>`:''}
      <button class="btn" style="margin-top:10px" data-act="${next?'nextex':'finish'}">${next?'Siguiente ejercicio':'Terminar sesión'}</button></div>`}
   ${obsCard(ns)}
@@ -577,6 +663,45 @@ const isPR=x=>/^\W*PR\b/.test(normU(x.name));
 const prHit=(x,kg,reps)=>isPR(x)&&x.kg!=null&&kg>=x.kg-0.001&&reps>=(parseInt(x.reps)||x.repsN||1);
 const draftKey=n=>`${S.aid}|${mesoOf(ATH())}|${S.week}|${S.day}|${S.ex}|${n}`;
 function curDraft(){ const L=ensureLog(), k=draftKey((L.sets[S.ex]||[]).length); if(!S.draft||S.draft.k!==k) S.draft={k}; return S.draft }
+// ---------- escala EVA (dolor de 0 a 10) ----------
+// El coach la activa por alumno (athletes.data.eva = {on, zonas:[...], ex:{<exKey>: true|false}}). Con las zonas lesionadas se marcan solos
+// los ejercicios que cargan esa articulación o músculo; el coach puede forzar cada ejercicio (ex). En esos ejercicios el EVA es obligatorio.
+const EVA_ZONAS=[
+  ['hombro','Hombro',/BANCA|BENCH|BILBO|PRESS(?!\s*FRANCES)|FONDO|\bDIPS?\b|FLEXIONES|CHIN|PULL\s*UPS?\b|DOMINADA|JALON|REMO|\bROWS?\b|FACE\s*PULL|LATERAL|ELEVACION|PULL[\s-]*APART|YTWL|ROTACION EXTERNA|SQUAT|SENTADILLA/,/SAFETY|BELT|SSB|BANDA \(ACTIV|CAMINATA/],
+  ['codo','Codo',/BANCA|BENCH|BILBO|PRESS|FONDO|\bDIPS?\b|FLEXIONES|CURL(?!\s*FEMORAL)|FRANCES|TRICEP|CHIN|PULL\s*UPS?\b|DOMINADA|JALON|REMO|\bROWS?\b|FACE\s*PULL/,/PRENSA/],
+  ['muneca','Muñeca',/BANCA|BENCH|BILBO|PRESS|FONDO|\bDIPS?\b|FLEXIONES|CURL(?!\s*FEMORAL)|FRANCES|SQUAT|SENTADILLA/,/SAFETY|BELT|SSB|PRENSA/],
+  ['lumbar','Zona lumbar',/SQUAT|SENTADILLA|DEADLIFT|DEALDIFT|PESO\s*MUERTO|BLOCK\s*PULL|RUMANO|\bRDL\b|BUENOS\s*DIAS|GOOD\s*MORNING|REMO|\bROWS?\b|HIPEREXTENSION|HIP\s*T?H?RUST|HIPTRUST/,/BELT/],
+  ['cadera','Cadera',/SQUAT|SENTADILLA|DEADLIFT|DEALDIFT|PESO\s*MUERTO|BLOCK\s*PULL|RUMANO|\bRDL\b|BUENOS\s*DIAS|HIP\s*T?H?RUST|HIPTRUST|BULGAR|ZANCADA|ESTOCADA|LUNGE|PRENSA|ABDUC|ADUC|GLUTEO|PUENTE|CAMINATA LATERAL/],
+  ['rodilla','Rodilla',/SQUAT|SENTADILLA|DEADLIFT|DEALDIFT|PESO\s*MUERTO|BLOCK\s*PULL|BULGAR|ZANCADA|ESTOCADA|LUNGE|PRENSA|CUADRICEP|FEMORAL|HACK|STEP/],
+  ['tobillo','Tobillo',/SQUAT|SENTADILLA|BULGAR|ZANCADA|ESTOCADA|LUNGE|GEMELO|PANTORRILLA|PRENSA|STEP|SALTO/],
+  ...['Cuádriceps','Isquios y glúteos','Espalda','Pecho','Hombros','Brazos','Core'].map(g=>['m:'+g,g+' (músculo)'])];
+const evaCfg=(aid=S.aid)=>((DATA.athletes[aid]||{}).eva)||{};
+// ¿la lesión elegida toca este ejercicio?
+function evaAuto(x,c){ const t=normU(x.name); return (c.zonas||[]).some(z=>{ const Z=EVA_ZONAS.find(q=>q[0]===z); if(!Z) return false;
+  if(z.startsWith('m:')){ const g=z.slice(2), m=musclesOf(x.name); return (m[g]||0)>=0.2||muscle(x.name)===g }
+  return Z[2].test(t)&&!(Z[3]&&Z[3].test(t)) }) }
+function evaOn(x,aid=S.aid){ const c=evaCfg(aid); if(!c.on||!x) return false; const o=(c.ex||{})[exKey(x.name)]; return o!=null?!!o:evaAuto(x,c) }
+// recomendación según el dolor anotado (EVA 0–3: seguir)
+const EVA_REGLA=v=>v>=8?{stop:true,lbl:'Dolor alto',txt:'Recomendación: para este ejercicio por hoy.'}:v>=6?{pct:.2,lbl:'Dolor moderado-alto',txt:'Recomendación: baja un 20 % el peso.'}:v>=4?{pct:.1,lbl:'Dolor moderado',txt:'Recomendación: baja un 10 % el peso.'}:null;
+const evaCol=v=>v>=8?'var(--red-fg)':v>=6?'#e07a3a':v>=4?'var(--amber)':'var(--green)';
+const roundKg=(v,x)=>isBasic(x)?r25(v):Math.round(v*2)/2;
+const adjOf=(L,i)=>((L&&L.adj)||{})[i]||null;
+const stoppedEx=(L,i)=>!!(adjOf(L,i)&&adjOf(L,i).stop);
+// peso con el que viene trabajando: el ajustado por EVA, si no el de la última serie, si no el de la planilla
+function workKg(x,L,i){ const A=adjOf(L,i); if(A&&A.kg>0) return A.kg; const st=((L&&L.sets[i])||[]).filter(s=>+s.kg>0); return st.length?+st[st.length-1].kg:(x.kg>0?x.kg:null) }
+// primera serie de un ejercicio con EVA que todavía no tiene el EVA anotado
+function evaMissing(d,L){ if(!d||!L) return null; for(let i=0;i<d.exercises.length;i++){ const x=d.exercises[i]; if(!evaOn(x)) continue;
+  const j=((L.sets||{})[i]||[]).findIndex(s=>s.eva==null); if(j>=0) return {ex:i,i:j,x} } return null }
+// EVA alto en la última serie anotada de un ejercicio al que le quedan series y que no se ha resuelto (aplicar o seguir igual)
+function evaPend(d,L,i){ const x=d.exercises[i], st=((L.sets||{})[i])||[]; if(!evaOn(x)||st.length>=x.sets||stoppedEx(L,i)) return null;
+  let j=-1; st.forEach((s,k)=>{ if(s.eva!=null) j=k }); if(j<0) return null; const v=+st[j].eva, R=EVA_REGLA(v); if(!R) return null;
+  const A=adjOf(L,i); if(A&&A.set>=j+1) return null; if(((L.adjNo||{})[i])>=j) return null;
+  const base=workKg(x,L,i), kg=R.pct&&base?roundKg(base*(1-R.pct),x):null; return {i,j,v,R,base,kg,x} }
+const evaChips=(cur,attr,pre='')=>`<div class="evarow">${[0,1,2,3,4,5,6,7,8,9,10].map(v=>`<button class="evab" style="--c:${evaCol(v)}" ${attr}="${pre}${v}" aria-pressed="${cur!=null&&+cur===v}">${v}</button>`).join('')}</div>`;
+const EVA_Q='Dolor en la serie · EVA de 0 (nada) a 10 (máximo)';
+function evaRecHtml(p){ if(!p) return ''; const n=`EVA ${p.v} en la serie ${p.j+1} · ${p.R.lbl}`;
+  return `<div class="rpebox" style="border-color:${evaCol(p.v)}"><div class="q" style="color:${evaCol(p.v)}">${n}</div><div class="small">${p.R.txt}${p.kg?` De ${fmt(p.base,1)} kg a <b>${fmt(p.kg,1)} kg</b> en las series que quedan.`:''}</div>
+    <div class="btns" style="margin-top:8px">${p.R.stop?`<button class="btn goldb sm" data-act="eva-apply" data-ex="${p.i}" data-j="${p.j}">Terminar este ejercicio</button>`:`<button class="btn goldb sm" data-act="eva-apply" data-ex="${p.i}" data-j="${p.j}">${p.kg?`Bajar a ${fmt(p.kg,1)} kg`:`Bajar ${fmt(p.R.pct*100)} %`}</button>`}<button class="btn ghost sm" data-act="eva-no" data-ex="${p.i}" data-j="${p.j}">Seguir igual</button></div></div>` }
 // ---------- analizador IPF: evaluar en video una serie de un básico de competencia ----------
 // El analizador vive en analizador/ (copia de github.com/ossos745/analizador-ipf) y es del mismo origen que la app.
 // Ida: se abre en otra pestaña con el contexto de la serie en el fragmento (#), nunca con el ?k= del alumno.
@@ -640,7 +765,7 @@ async function ipfRecibir(d,file){
   let vid=false, vidErr=false; if(file&&d.video&&d.video.adjunto){ try{ await ipfGuardarVideo(ipfKey(c.lid,c.ex,c.i),d,file); vid=true }catch(e){ vidErr=true } }
   else { try{ await ipfIdb('readwrite',s=>s.delete(ipfKey(c.lid,c.ex,c.i))) }catch(e){} }   // una evaluación nueva sin video no deja el video de la anterior
   const L=JSON.parse(JSON.stringify(DATA.logs[c.lid])), st=((L.sets||{})[c.ex]||[])[c.i]; if(!st) return;
-  st.ipf=ipfResumen(d,vid); L.updatedAt=Date.now(); Store.put('logs',c.lid,L);
+  st.ipf=ipfResumen(d,vid); st.ipf.vk=ipfKey(c.lid,c.ex,c.i); L.updatedAt=Date.now(); Store.put('logs',c.lid,L);
   say(`Serie ${c.i+1} evaluada: ${ipfVerTxt(st.ipf)}${st.ipf.vSub!=null?' · '+fmt(st.ipf.vSub,2)+' m/s':''}.${vid?' El video quedó guardado en este teléfono.':vidErr?' No se pudo guardar el video (falta espacio en el teléfono).':''}`,vidErr) }
 window.addEventListener('message',ev=>{ if(ev.origin!==location.origin&&IPF_ORIGS.indexOf(ev.origin)<0) return; const d=ev.data; if(!d||typeof d!=='object'||d.app!=='analizador-ipf') return;
   const {videoArchivo,...paq}=d; ipfRecibir(paq,videoArchivo instanceof Blob?videoArchivo:null) });
@@ -655,12 +780,12 @@ function ipfLine(s){ const f=s.ipf; if(!f) return ''; const [t,c]=IPF_VER[f.ver]
   const bits=[f.vSub!=null?`subida ${fmt(f.vSub,2)}${vb!=null?' ± '+fmt(vb,2):''} m/s`:'',f.rom!=null?`recorrido ${fmt(f.rom,1)}${f.romB!=null?' ± '+fmt(f.romB,1):''} ${f.cal?'cm':'px'}`:'',
     f.perd!=null?`pérdida ${fmt(f.perd,0)} %`:'',f.prof&&f.prof.v!=null?`profundidad ${fmt(f.prof.v,1)}${f.prof.b!=null?' ± '+fmt(f.prof.b,1):''} ${esc(f.prof.u)}`:''].filter(Boolean);
   return `<span class="pill ${c}">${t}</span> ${bits.join(' · ')}${f.cal?'':' <span class="muted">(sin calibrar)</span>'}${f.v&&f.v!==IPF_V?` <span class="pill warn" title="La app espera ${IPF_V}">analizador ${esc(f.v)}</span>`:''}` }
-function ipfCard(x,done){ if(!liftDe(x)) return '';
+function ipfCard(x,done){ if(!liftDe(x)||!prefsOf().ipf) return '';
   const lid=logId(S.aid,S.week,S.day);
   return `<div class="card ipfc"><div class="row"><span class="eyebrow">Evaluar en video · reglamento IPF</span></div>
   <div class="small muted" style="margin:4px 0 8px">Graba la serie y analízala: velocidad, recorrido y si fue válida. El video no se sube a internet: queda en tu teléfono.</div>
   ${done.length?`<div class="chips">${done.map((s,i)=>`<button class="chip" data-ipf="${i}">🎥 ${s.ipf?'Repetir':'Evaluar'} S${i+1}</button>`).join('')}</div>`:`<div class="small"><b>Graba tu serie</b> y márcala con "Serie hecha": aquí aparece el botón 🎥 para evaluarla.</div>`}
-  ${done.some(s=>s.ipf)?`<div class="ipfres">${done.map((s,i)=>s.ipf?`<div class="small"><b>S${i+1}</b> ${ipfLine(s)}${s.ipf.vid?` <button class="chip" data-ipfvid="${esc(ipfKey(lid,S.ex,i))}">${s.ipf.vidA?"Ver video analizado":"Ver video"}</button>`:''}</div>`:'').join('')}</div>`:''}</div>` }
+  ${done.some(s=>s.ipf)?`<div class="ipfres">${done.map((s,i)=>s.ipf?`<div class="small"><b>S${i+1}</b> ${ipfLine(s)}${s.ipf.vid?` <button class="chip" data-ipfvid="${esc(s.ipf.vk||ipfKey(lid,S.ex,i))}">${s.ipf.vidA?"Ver video analizado":"Ver video"}</button>`:''}</div>`:'').join('')}</div>`:''}</div>` }
 // ver el video guardado: solo la parte analizada (rango de frames del paquete), en una capa aparte que no toca el render
 async function ipfVer(key){ let v=null; try{ v=await ipfIdb('readonly',s=>s.get(key)) }catch(e){}
   if(!v||!v.blob){ const ov=document.createElement('div'); ov.className='timer ipfov';
@@ -733,7 +858,7 @@ function ipfTrayChart(f,col){ const t=f.tr; if(!t||!t.p||t.p.length<2) return ''
   return `<div class="eyebrow" style="margin:12px 0 4px">Trayectoria de la barra</div><svg viewBox="0 0 ${S2} ${S2}" width="100%" style="max-width:240px;display:block;margin:auto" role="img" aria-label="Trayectoria de la barra"><rect x="1" y="1" width="${S2-2}" height="${S2-2}" rx="8" fill="none" stroke="var(--line)"/><line x1="${X(0)}" x2="${X(0)}" y1="8" y2="${S2-8}" stroke="var(--line)" stroke-dasharray="3 3"/>${segs}</svg>
   <div class="small muted" style="text-align:center">celeste = baja · rojo = sube · línea punteada = vertical de partida · en ${esc(t.u||'')}${t.u==='px'?' (sin calibrar)':''}</div>` }
 const ipfTbl=(head,rows)=>rows.length?`<div class="tbl" style="margin-top:6px"><table><thead><tr>${head.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map((c,i)=>`<td${i?' class="num"':''}>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`:'';
-function ipfDetail(o){ const f=o.s.ipf, col=IPF_COL[o.lift]||'var(--gold)', P=f.par||{}, key=ipfKey(o.lid,o.i,o.j), open=!(S.ipfHide&&S.ipfHide[key]);
+function ipfDetail(o){ const f=o.s.ipf, col=IPF_COL[o.lift]||'var(--gold)', P=f.par||{}, key=f.vk||ipfKey(o.lid,o.i,o.j), open=!(S.ipfHide&&S.ipfHide[key]);
   const pr=(n,a,u,d)=>a?[n,ipfF(a[0],d)+' '+u,ipfF(a[1],d),ipfF(a[2],d)]:null;
   const prow=[pr('Velocidad concéntrica (media)',P.vSub||(f.vSub!=null?[f.vSub,null,null]:null),'m/s',2),pr('Velocidad concéntrica (pico)',P.vSubP,'m/s',2),pr('Velocidad excéntrica (media)',P.vBaj||(f.vBaj!=null?[f.vBaj,null,null]:null),'m/s',2),pr('Velocidad excéntrica (pico)',P.vBajP,'m/s',2),
     pr('Tiempo de subida',P.dSub||(f.dSub!=null?[f.dSub,null,null]:null),'s',2),pr('Tiempo de bajada',P.dBaj||(f.dBaj!=null?[f.dBaj,null,null]:null),'s',2),pr('Recorrido',P.rom||(f.rom!=null?[f.rom,null,null]:null),f.cal?'cm':'px',1)].filter(Boolean);
@@ -942,10 +1067,12 @@ function vResumen(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day), L=dayL
   ${kpis(rm,pm,true)}<div class="card"><div class="eyebrow" style="margin-bottom:8px">Grupos musculares de la sesión (kilos levantados)</div>${pieMuscles([[w,d]],true)}</div>${dayTable(w,d,false)}
   <button class="btn" data-act="todash">Ver dashboard de la semana</button><button class="btn ghost" data-act="back">Volver a los días</button>`}
 
+function evaCell(L,i,st){ const ev=st.filter(s=>s&&s.eva!=null).map(s=>+s.eva), A=adjOf(L,i);
+  return (ev.length?`<div class="small" style="color:${evaCol(Math.max(...ev))}">EVA ${ev.join(' · ')}</div>`:'')+(A?`<div class="small" style="color:var(--red-fg)">${A.stop?'Paró por dolor':A.kg?`Bajó a ${fmt(A.kg,1)} kg`:`Bajó ${fmt(A.pct*100)} %`}</div>`:'') }
 function dayTable(w,d,coach){const L=dayLog(w.n,d.n);
   return `<div class="card"><div class="eyebrow" style="margin-bottom:6px">${coach?`${dayName(d)} · ${title(d.focus)}`:'Lo que hiciste'}</div><div class="tbl wrap"><table><thead><tr><th>Ejercicio</th><th>Plan</th><th>Real</th></tr></thead><tbody>
   ${d.exercises.map((x,i)=>{const st=(L&&L.sets[i])||[]; const best=st.length?st.reduce((a,s)=>(+s.kg>=+a.kg?s:a)):null; const ns=exNotes(w.n,d.n,i);
-    return `<tr><td>${title(x.name)}${ns.length?`<div class="small gold">${ns.map(n=>esc(n.tag||'Nota')+(n.text?': '+esc(n.text):'')).join('<br>')}</div>`:''}</td><td class="pl num">${x.sets}×${esc(x.reps)}${x.kg!=null?'<br>'+fmt(x.kg,1)+' kg':''}${x.rpe!=null?' @'+esc(x.rpe):''}</td><td class="num">${st.length?`${st.length}/${x.sets}<br>${best.kg!=null&&best.kg!==''?fmt(+best.kg,1)+'×':''}${best.reps}${best.rpe!=null&&best.rpe!==''?' @'+fmt(+best.rpe,1):''}`:'<span class="muted">—</span>'}</td></tr>`}).join('')}
+    return `<tr><td>${title(x.name)}${ns.length?`<div class="small gold">${ns.map(n=>esc(n.tag||'Nota')+(n.text?': '+esc(n.text):'')).join('<br>')}</div>`:''}</td><td class="pl num">${x.sets}×${esc(x.reps)}${x.kg!=null?'<br>'+fmt(x.kg,1)+' kg':''}${x.rpe!=null?' @'+esc(x.rpe):''}</td><td class="num">${st.length?`${st.length}/${x.sets}<br>${best.kg!=null&&best.kg!==''?fmt(+best.kg,1)+'×':''}${best.reps}${best.rpe!=null&&best.rpe!==''?' @'+fmt(+best.rpe,1):''}`:'<span class="muted">—</span>'}${evaCell(L,i,st)}</td></tr>`}).join('')}
   </tbody></table></div>${coach&&L?`<div style="margin-top:8px;text-align:right"><button class="chip" data-dellog="${logId(S.aid,w.n,d.n)}">Borrar registro de este día</button></div>`:''}</div>`}
 
 function kpis(r,p,kg){const k=(l,v,pv,u='')=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}${u}</div><div class="p">plan ${pv}${u}</div></div>`;
@@ -1129,7 +1256,7 @@ function vAlumnos(){const list=Object.entries(DATA.athletes).map(([id,a])=>({id,
     const cw=P&&currentWeek(a.id), w=P&&P.weeks.find(x=>x.n===cw), done=w?weekDone(w,a.id):0;
     return `<div class="card"><div class="ath"><div class="av">${esc((a.name||'?')[0])}</div><div style="min-width:0">
       <div class="row"><b>${esc(a.name)}</b>${a.coach?'<span class="pill gold">Tú</span>':un?`<span class="pill red">${un} sin revisar</span>`:'<span class="pill">Al día</span>'}</div>
-      ${P?`<div class="small muted">Semana ${cw} · ${done}/${w.days.length} sesiones${a.file?` · ${esc(a.file)}`:''}</div>
+      ${P?`<div class="small muted">Semana ${cw} · ${done}/${w.days.length} sesiones${a.file?` · ${esc(a.file)}`:''}${a.eva&&a.eva.on?' · <span class="gold">EVA activa</span>':''}</div>
       <label class="f" style="margin-top:8px">Mesociclo<select class="t" data-meso="${a.id}">${avail.map(m=>`<option value="${m[0]}" ${m[0]===mk?'selected':''}>${m[1]}</option>`).join('')}</select></label>
       <div class="bar" style="margin-top:6px"><b style="width:${100*done/w.days.length}%"></b></div>
       <div class="btns" style="margin-top:10px"><button class="btn ghost sm" data-open="${a.id}">Ver rutina</button><button class="btn ${a.coach?'goldb':'ghost'} sm" data-train="${a.id}">${a.coach?'Entrenar':'Vista alumno'}</button></div>`
@@ -1220,7 +1347,7 @@ function vRpeCoach(){ const f=S.rfilter||'';
     </tbody></table></div>
     ${(()=>{ if(!S.cset||!S.cset.startsWith(L.id+'|')) return ''; const [,ci,cj]=S.cset.split('|'), st=((L.sets||{})[ci]||[])[+cj], x=d&&d.exercises[+ci]; if(!st) return '';
       return `<div class="rpebox plain" style="margin-top:10px"><div class="q">RPE real · ${x?title(x.name):'Ejercicio'} · serie ${+cj+1} <span class="muted small">(${hasR(st.kg)&&+st.kg?fmt(+st.kg,1)+' kg × ':''}${st.reps} reps)</span></div>
-      ${st.ipf?`<div class="small" style="margin:-2px 0 8px">Video IPF: ${ipfLine(st)}${st.ipf.mot?`<div class="muted">${esc(st.ipf.mot)}</div>`:''}${st.ipf.vid?` <button class="chip" data-ipfvid="${esc(ipfKey(L.id,ci,+cj))}">Ver video</button>`:''}</div>`:''}
+      ${st.ipf?`<div class="small" style="margin:-2px 0 8px">Video IPF: ${ipfLine(st)}${st.ipf.mot?`<div class="muted">${esc(st.ipf.mot)}</div>`:''}${st.ipf.vid?` <button class="chip" data-ipfvid="${esc(st.ipf.vk||ipfKey(L.id,ci,+cj))}">Ver video</button>`:''}</div>`:''}
       <div class="rpein"><input id="coach-rpe" type="text" inputmode="decimal" autocomplete="off" placeholder="—" value="${hasR(st.rpe)?esc(st.rpe):''}"><button class="okbtn" data-act="cset-ok" aria-label="Guardar RPE">✓</button></div>
       <div class="row" style="margin-top:8px"><span class="small muted">Queda marcado como puesto por el coach. Vacío + ✓ lo quita.</span><button class="chip" data-act="cset-cancel">Cancelar</button></div></div>` })()}
     <div style="margin-top:8px;text-align:right"><button class="chip" data-dellog="${L.id}">Borrar registro de este día</button></div></div>` };
@@ -1318,9 +1445,9 @@ function exportExcel(){ if(typeof XLSX==='undefined') return flash('No se pudo c
     const aoa=[[`${a.name} · RPE planificado vs real y observaciones`],[`Exportado el ${fdNum(Date.now())} desde Powerosso App`],[]];
     if(st) aoa.push(['Series comparadas','Diferencia media (real − plan)','Variación media (absoluta)','Desviación estándar','% dentro de ±0,5','% 1+ sobre el plan','% 1+ bajo el plan'],
       [st.n,r2(st.mean),r2(st.abs),r2(st.sd),r2(100*st.ok),r2(100*st.over),r2(100*st.under)],[]);
-    aoa.push(['SERIES'],['Fecha','Mesociclo','Semana','Día','Ejercicio','Serie','kg','Reps','RPE plan','RPE real','Diferencia','RPE del día','Observación del alumno','1RM est. Bilbo']);
-    rows.forEach(r=>{ const obs=r.k===1?ns.filter(o=>o.w===r.L.w&&o.d===r.L.d&&o.ex===r.i&&(o.meso||r.L.meso)===r.L.meso).map(o=>[o.tag,o.text].filter(Boolean).join(': ')).join(' | '):'';
-      aoa.push([fdNum(r.t),mesoLabel(r.L.meso||''),r.L.w,`Día ${r.L.d}${r.d&&r.d.weekday?' ('+title(r.d.weekday)+')':''}`,r.name,r.k,hasR(r.s.kg)?+r.s.kg:'',r.s.reps??'',r.plan??'',r.real??'',r.plan!=null&&r.real!=null?r2(r.real-r.plan):'',r.L.rpeDay||'',obs,isBilbo(r.x)||r.s.bilbo?r2(rm1(r.s.kg,r.s.reps)):'']) });
+    aoa.push(['SERIES'],['Fecha','Mesociclo','Semana','Día','Ejercicio','Serie','kg','Reps','RPE plan','RPE real','Diferencia','RPE del día','Observación del alumno','1RM est. Bilbo','EVA']);
+    rows.forEach(r=>{ const obs=r.k===1?ns.filter(o=>o.w===r.L.w&&o.d===r.L.d&&noteIdx(o,r.d)===r.i&&(o.meso||r.L.meso)===r.L.meso).map(o=>[o.tag,o.text].filter(Boolean).join(': ')).join(' | '):'';
+      aoa.push([fdNum(r.t),mesoLabel(r.L.meso||''),r.L.w,`Día ${r.L.d}${r.d&&r.d.weekday?' ('+title(r.d.weekday)+')':''}`,r.name,r.k,hasR(r.s.kg)?+r.s.kg:'',r.s.reps??'',r.plan??'',r.real??'',r.plan!=null&&r.real!=null?r2(r.real-r.plan):'',r.L.rpeDay||'',obs,isBilbo(r.x)||r.s.bilbo?r2(rm1(r.s.kg,r.s.reps)):'',r.s.eva??'']) });
     if(!rows.length) aoa.push(['Sin series registradas']);
     aoa.push([],['OBSERVACIONES'],['Fecha','Mesociclo','Semana','Día','Ejercicio','Observación','Comentario','Respuesta del coach','Revisada']);
     ns.forEach(o=>aoa.push([fdNum(o.at),mesoLabel(o.meso||''),o.w,o.dayLabel||`Día ${o.d}`,title(o.exName||''),o.tag||'',o.text||'',o.reply||'',o.reviewed?'Sí':'No']));
@@ -1339,7 +1466,7 @@ function vNotasCoach(){const all=Object.entries(DATA.notes).map(([id,n])=>({id,.
   ${shown.length?`<div class="card" style="display:flex;flex-direction:column;gap:12px">${shown.map(n=>noteHtml(n,true)).join('')}</div>`:`<div class="card muted">Sin observaciones todavía. Aparecen aquí cuando un alumno deja una en un ejercicio.</div>`}`}
 
 function vCoachAthlete(){const a=ATH(), P=PLAN(); let sub=S.csub||'rutina'; if(!P&&sub!=='notas'&&sub!=='datos') sub='cargar'; const w=P&&wkObj(S.week);
-  const tabs=[['rutina','Rutina'],['dash','Dashboard'],['notas','Observaciones'+(unread(S.aid)?` (${unread(S.aid)})`:'')],['cargar','Planilla'],['datos','Datos']];
+  const tabs=[['rutina','Rutina'],['dash','Dashboard'],['notas','Observaciones'+(unread(S.aid)?` (${unread(S.aid)})`:'')],['eva','Escala EVA'+(evaCfg().on?' ✓':'')],['cargar','Planilla'],['datos','Datos']];
   let body='';
   if(sub==='datos') body=`<div class="card"><label class="f">Nombre<input class="t" id="ed-name" value="${esc(a.name||'')}"></label>
     <div class="btns" style="margin-top:8px"><button class="btn goldb sm" data-act="ed-save">Guardar nombre</button></div>
@@ -1347,6 +1474,7 @@ function vCoachAthlete(){const a=ATH(), P=PLAN(); let sub=S.csub||'rutina'; if(!
     <div style="margin-top:16px">${S.delAsk===S.aid?delPanel(S.aid):`<button class="btn ghost sm" data-delask="${S.aid}">Eliminar alumno</button>`}</div>`}</div>`;
   if(sub==='rutina') body=w.days.map(d=>dayTable(w,d,true)).join('');
   if(sub==='dash') body=vDash();
+  if(sub==='eva') body=vEvaCoach();
   if(sub==='notas'){const ns=notesOf(S.aid); body=ns.length?`<div class="card" style="display:flex;flex-direction:column;gap:12px">${ns.map(n=>noteHtml(n,true)).join('')}</div>`:`<div class="card muted">${esc(a.name)} todavía no deja observaciones.</div>`}
   if(sub==='cargar') body=P?vCargar():`<div class="card muted">Sube su planilla de Excel. La app toma las hojas de mesociclo (Hipertrofia, Fuerza base, Volumen, Peaking, Tapering).</div><label class="file card"><input type="file" id="xlsx" accept=".xlsx,.xls,.xlsm"><b>Elegir planilla</b></label>`;
   if(!w&&(sub==='rutina'||sub==='dash')) body='';
@@ -1355,6 +1483,20 @@ function vCoachAthlete(){const a=ATH(), P=PLAN(); let sub=S.csub||'rutina'; if(!
   ${avail.length>1?`<div class="chips">${avail.map(m=>`<button class="chip" data-setmeso="${m[0]}" aria-pressed="${m[0]===mk}">${m[1]}</button>`).join('')}</div>`:''}
   ${toastHtml()}<div class="chips">${tabs.map(([k,l])=>`<button class="chip" data-csub="${k}" aria-pressed="${sub===k}">${l}</button>`).join('')}</div>${body}`}
 
+// ---------- panel del coach: escala EVA del alumno ----------
+function evaExList(a){ const P=planOf(a), seen=new Map(); if(P) P.weeks.forEach(w=>w.days.forEach(d=>d.exercises.forEach(x=>{ const k=exKey(x.name); if(!seen.has(k)) seen.set(k,x) }))); return [...seen.entries()] }
+function vEvaCoach(){ const a=ATH(), c=evaCfg(), list=evaExList(a), on=!!c.on, z=c.zonas||[], first=esc((a.name||'el alumno').split(' ')[0]); let n=0;
+  const rows=list.map(([k,x])=>{ const o=(c.ex||{})[k], eff=o!=null?!!o:evaAuto(x,c); if(eff) n++;
+    return `<div class="row" style="padding:6px 0;border-top:1px solid var(--line);gap:8px"><span style="flex:1;min-width:0">${title(x.name)}</span>${o!=null?`<button class="chip" data-evaauto="${k}" aria-label="Volver a automático">↺</button>`:''}<button class="chip" data-evaex="${k}" aria-pressed="${eff}">${eff?'EVA ✓':'Sin EVA'}${o!=null?' · manual':''}</button></div>` }).join('');
+  const hist=sessionsOf(S.aid).flatMap(o=>Object.entries(o.L.sets||{}).flatMap(([i,arr])=>{ const ev=(arr||[]).filter(s=>s&&s.eva!=null); if(!ev.length) return [];
+    return [{o,x:o.d&&o.d.exercises[i],max:Math.max(...ev.map(s=>+s.eva)),A:adjOf(o.L,i)}] })).reverse().slice(0,30);
+  return `<div class="card"><div class="row"><span class="eyebrow">Escala EVA · dolor de 0 a 10</span><button class="chip" data-evaon="1" aria-pressed="${on}">${on?'✓ Activada':'Desactivada'}</button></div>
+  <div class="small muted" style="margin-top:6px">Con la escala activada, ${first} anota su dolor (EVA) en cada serie de los ejercicios marcados, de forma obligatoria, en el ejercicio o en el descanso. Si el EVA es alto, la app le recomienda bajar el peso o parar. Si está desactivada, no ve la opción.</div>
+  ${on?`<div class="eyebrow" style="margin:12px 0 6px">Zona de la lesión</div><div class="chips">${EVA_ZONAS.map(([k,l])=>`<button class="chip" data-evazona="${k}" aria-pressed="${z.includes(k)}">${l}</button>`).join('')}</div>
+  <div class="small muted" style="margin-top:6px">Los ejercicios que cargan esa zona quedan con EVA solos. Toca un ejercicio para ponerle o quitarle el EVA a mano (↺ vuelve a lo automático).</div>`:''}
+  <div class="small" style="margin-top:10px"><b>Recomendación al alumno:</b> EVA 0–3 sigue · 4–5 bajar 10 % · 6–7 bajar 20 % · 8–10 parar el ejercicio. Si acepta bajar, el peso nuevo se anota en su Excel con el actualizador (.bat).</div></div>
+  ${on?`<div class="card"><div class="row"><span class="eyebrow">Ejercicios · ${esc(mesoLabel(mesoOf(a)||''))}</span><span class="pill gold">${n} con EVA</span></div>${rows||'<div class="muted small">Todavía no tiene planilla.</div>'}</div>`:''}
+  ${hist.length?`<div class="card"><div class="eyebrow">EVA registrados</div><div class="tbl wrap" style="margin-top:6px"><table><thead><tr><th>Sesión</th><th>Ejercicio</th><th>EVA máx.</th><th>Ajuste</th></tr></thead><tbody>${hist.map(h=>`<tr><td class="num">S${h.o.L.w} D${h.o.L.d}<div class="small muted">${fdate(h.o.t)}</div></td><td>${h.x?title(h.x.name):'—'}</td><td class="num"><b style="color:${evaCol(h.max)}">${h.max}</b></td><td class="small">${h.A?h.A.stop?'Paró':h.A.kg?`${fmt(h.A.from,1)} → ${fmt(h.A.kg,1)} kg`:`−${fmt(h.A.pct*100)} %`:'—'}</td></tr>`).join('')}</tbody></table></div></div>`:''}` }
 function vCargar(){const P=PLAN(), w=P.weeks, nEx=w.reduce((a,x)=>a+x.days.reduce((b,d)=>b+d.exercises.length,0),0);
   const chk=(P.warnings||[]).filter(x=>x.kind==='check'), miss=(P.warnings||[]).filter(x=>x.kind!=='check');
   const W=a=>a.map(x=>`<div class="warn ${x.kind==='check'?'chk':''}">${esc(x.msg)}<small>Fila ${x.row} · ${esc(x.where||'')}</small></div>`).join('');
@@ -1380,6 +1522,7 @@ function startTimer(rest,label,set){S.timer={end:Date.now()+rest.max*1000,total:
   el.innerHTML=`<div class="in"><img src="${LOGO}" alt="" style="width:56px"><div class="eyebrow">Descanso</div><div class="ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="54" fill="none" stroke="var(--surface-2)" stroke-width="8"/><circle id="t-arc" cx="60" cy="60" r="54" fill="none" stroke="var(--gold)" stroke-width="8" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="0"/></svg><div class="tt"><b id="t-left"></b><span id="t-tot">de ${fmtRest(rest.max)}</span></div></div>
   <div id="t-msg"></div>
   ${set?`<div id="t-rpebox" style="width:100%">${tRpeHtml()}</div>`:''}
+  ${set&&set.ev?`<div id="t-evabox" style="width:100%">${tEvaHtml()}</div>`:''}
   <div class="small muted">${esc(label)}</div>
   <div class="btns3"><button class="btn ghost sm" data-t="-15">−15 s</button><button class="btn ghost sm" data-t="+30">+30 s</button><button class="btn sm" data-t="skip" id="t-skip">Saltar</button></div></div>`;
   clearInterval(tick); tick=setInterval(drawTimer,250); armRestAlarm(); drawTimer()}
@@ -1387,6 +1530,11 @@ function startTimer(rest,label,set){S.timer={end:Date.now()+rest.max*1000,total:
 function tRpeHtml(){ const T=S.timer; if(!T||!T.set) return ''; const st=(ensureLog().sets[T.set.ex]||[])[T.set.i]||{}, has=hasR(st.rpe);
   if(has&&!T.editRpe) return `<div class="rpebox ok"><div class="row"><div><div class="q" style="margin:0">RPE registrado ✓</div><div class="small muted">Serie ${T.set.n} · ${esc(title(T.set.name))}</div></div><b class="num" style="font-size:32px">${fmt(+st.rpe,1)}</b></div><button class="btn ghost sm" style="margin-top:8px" data-trpe="edit">Modificar</button></div>`;
   return `<div class="rpebox"><div class="q">${has?'Modificar RPE':'¿Qué tan dura fue la serie del 1 al 10? (RPE REAL)'} <span class="muted small">serie ${T.set.n}</span></div><div class="rpein"><input id="t-rpe" type="text" inputmode="decimal" autocomplete="off" placeholder="—" value="${has?esc(st.rpe):''}"><button class="okbtn" data-trpe="ok" aria-label="Listo">✓</button></div></div>`}
+// EVA de la serie recién hecha (si el ejercicio lo pide) y, si es alto, la recomendación
+function tEvaHtml(){ const T=S.timer; if(!T||!T.set||!T.set.ev) return ''; const L=ensureLog(), st=(L.sets[T.set.ex]||[])[T.set.i]||{};
+  const d=wkObj(S.week)&&wkObj(S.week).days.find(x=>x.n===S.day), p=st.eva!=null&&d?evaPend(d,L,T.set.ex):null;
+  return `<div class="rpebox ${st.eva!=null?'ok':''}"><div class="q">${st.eva!=null?`EVA registrado ✓ <b class="num" style="color:${evaCol(st.eva)}">${st.eva}</b>`:'¿Sentiste dolor? Anota tu EVA (obligatorio)'} <span class="muted small">serie ${T.set.n}</span></div>${evaChips(st.eva,'data-teva')}</div>${evaRecHtml(p)}` }
+const evaRefresh=()=>{ const b=$('#t-evabox'); if(b) b.innerHTML=tEvaHtml() };
 function tRpeOk(){ const T=S.timer, inp=$('#t-rpe'); if(!T||!T.set||!inp) return; const raw=inp.value.replace(',','.').trim(), v=parseFloat(raw);
   if(raw===''){ inp.style.borderColor='var(--red)'; inp.focus(); return }
   if(!(v>=1&&v<=10)){ inp.style.borderColor='var(--red)'; return }
@@ -1412,6 +1560,7 @@ function drawTimer(){const T=S.timer; if(!T) return; const left=Math.max(0,Math.
 function render(){
   const hdr=$('#hdr'), nav=$('#nav'), ban=$('#banner');
   if(S.mode==='loading') return;
+  alignAll();
   if(S.mode==='nolink'){hdr.hidden=true;nav.hidden=true;ban.innerHTML='';$('#main').innerHTML=`<div class="splash"><img src="${LOGO}" alt="Team Powerosso"><h2 class="h2">Powerosso App</h2><div class="muted">${S.badLink?'Este link no es válido o fue reemplazado. Pídele a tu coach tu link actual.':S.netErr?'No se pudo conectar. Revisa tu internet y vuelve a abrir el link.':'Abre el link personal que te envió tu coach para ver tu planificación.'}</div></div>`;return}
   if(S.mode==='athlete'){
     if(!ATH()){S.mode=S.isCoach?'coach':'nolink';return render()}
@@ -1477,7 +1626,7 @@ function downloadBat(){ const coach=Object.values(DATA.athletes).find(a=>a.coach
   flash('Guarda el .bat donde quieras y ábrelo con doble clic cuando cambies una planilla.') }
 const BAT=`<# :
 @echo off
-rem Powerosso: anota los PR en los Excel, sube las planillas de la carpeta Alumnos a la app y guarda un respaldo.
+rem Powerosso: anota los PR y los pesos bajados por EVA en los Excel, sube las planillas de la carpeta Alumnos a la app y guarda un respaldo.
 rem Doble clic para ejecutar. Las lineas de abajo son PowerShell (viene incluido en Windows).
 powershell -NoProfile -ExecutionPolicy Bypass -Command "iex ([IO.File]::ReadAllText('%~f0'))"
 echo.
@@ -1506,25 +1655,41 @@ Write-Host ''
 if (-not (Test-Path -LiteralPath $Carpeta)) { Write-Host '  No encuentro la carpeta. Revisa la ruta en este archivo (linea $Carpeta).' -ForegroundColor Red; return }
 $archivos = Get-ChildItem -LiteralPath $Carpeta -File | Where-Object { $_.Extension -match '^\\.xls[xm]$' -and $_.Name -notlike '~$*' }
 if (-not $archivos) { Write-Host '  No hay planillas .xlsx en la carpeta.'; return }
-# ---- PR: anota el 1RM estimado en la columna "SERIES X REPES REALIZADAS" de la fila del ejercicio ----
+# ---- Excel: anota los PR (1RM en "SERIES X REPES REALIZADAS") y los pesos bajados por EVA (columna "PESO(kg)") ----
+# Lo ya anotado queda en "Respaldos Powerosso\\anotado-en-excel.txt" y no se vuelve a escribir (ni se abre el Excel si no hay nada nuevo).
 function Norm($t) { if ($null -eq $t) { return '' } return (([string]$t).ToUpper().Replace([string][char]0xD7, 'X') -replace '[\\s\\.]', '') }
-$prs = @()
+$RegDir  = Join-Path $Carpeta 'Respaldos Powerosso'
+$RegFile = Join-Path $RegDir 'anotado-en-excel.txt'
+$hecho = @{}
+if (Test-Path -LiteralPath $RegFile) { foreach ($ln in (Get-Content -LiteralPath $RegFile -Encoding UTF8)) { if ($ln) { $hecho[$ln] = $true } } }
+$items = @()
 try {
   $d = (Llamar 'pw_load' @{ p_token = $Token }).Content | ConvertFrom-Json
   foreach ($lp in $d.logs.PSObject.Properties) {
-    $L = $lp.Value; if (-not $L.sets) { continue }
-    foreach ($ep in $L.sets.PSObject.Properties) { foreach ($st in @($ep.Value)) {
-      if ($st -and $st.pr -and $st.pr.file -and $st.pr.sheet -and $st.pr.row) { $prs += $st.pr } } }
+    $L = $lp.Value
+    if ($L.sets) { foreach ($ep in $L.sets.PSObject.Properties) { foreach ($st in @($ep.Value)) {
+      $p = $null; if ($st) { $p = $st.pr }
+      if ($p -and $p.file -and $p.sheet -and $p.row) {
+        $items += [pscustomobject]@{ tipo = 'pr'; file = [string]$p.file; sheet = [string]$p.sheet; row = [int]$p.row; ex = [string]$p.ex; t = [double]$p.t; valor = [double]$p.rm1; kg = $p.kg; reps = $p.reps; from = $null; eva = $null }
+      } } } }
+    if ($L.adj) { foreach ($ap in $L.adj.PSObject.Properties) {
+      $a = $ap.Value
+      if ($a -and $a.kg -and $a.file -and $a.sheet -and $a.row) {
+        $items += [pscustomobject]@{ tipo = 'eva'; file = [string]$a.file; sheet = [string]$a.sheet; row = [int]$a.row; ex = [string]$a.ex; t = [double]$a.t; valor = [double]$a.kg; kg = $a.kg; reps = $null; from = $a.from; eva = $a.eva }
+      } } }
   }
-} catch { Write-Host ('  No se pudieron leer los PR de la app: ' + $_.Exception.Message) -ForegroundColor Red }
-if ($prs.Count) {
-  Write-Host "  PR logrados en la app: $($prs.Count). Anotando el 1RM en los Excel..."
+} catch { Write-Host ('  No se pudieron leer los PR y ajustes EVA de la app: ' + $_.Exception.Message) -ForegroundColor Red }
+$yaAnotados = @($items | Where-Object { $hecho.ContainsKey($_.tipo + '|' + $_.file + '|' + $_.sheet + '|' + $_.t) }).Count
+$items = @($items | Where-Object { -not $hecho.ContainsKey($_.tipo + '|' + $_.file + '|' + $_.sheet + '|' + $_.t) } | Sort-Object { $_.t })
+if ($yaAnotados) { Write-Host "  PR y ajustes EVA ya anotados antes: $yaAnotados (no se vuelven a escribir)." }
+if ($items.Count) {
+  Write-Host "  Por anotar en los Excel: $($items.Count) (PR y pesos bajados por EVA)..."
+  New-Item -ItemType Directory -Force -Path $RegDir | Out-Null
   $xlNuevo = $null
-  $prs = @($prs | Sort-Object { [double]$_.t })   # si un dia se repitio, el ultimo PR queda escrito
-  foreach ($grupo in ($prs | Group-Object { $_.file })) {
+  foreach ($grupo in ($items | Group-Object { $_.file })) {
     $f = $archivos | Where-Object { $_.Name -eq $grupo.Name } | Select-Object -First 1
-    if (-not $f) { Write-Host ('  PR: no encuentro ' + $grupo.Name + ' en la carpeta') -ForegroundColor Red; continue }
-    $wb = $null; $propio = $false; $cambios = 0
+    if (-not $f) { Write-Host ('  No encuentro ' + $grupo.Name + ' en la carpeta') -ForegroundColor Red; continue }
+    $wb = $null; $propio = $false; $cambios = 0; $nuevos = @()
     try {
       # si el Excel ya esta abierto, se usa ese mismo; si no, se abre en segundo plano
       try { $xl = [Runtime.InteropServices.Marshal]::GetActiveObject('Excel.Application'); foreach ($w in $xl.Workbooks) { if ($w.Name -eq $f.Name) { $wb = $w } } } catch {}
@@ -1533,21 +1698,41 @@ if ($prs.Count) {
         $wb = $xlNuevo.Workbooks.Open($f.FullName); $propio = $true
       }
       foreach ($p in $grupo.Group) {
+        $clave = $p.tipo + '|' + $p.file + '|' + $p.sheet + '|' + $p.t
+        if ($p.tipo -eq 'pr') { $patron = '^SERIESXREP(E|ETICIONE)?SREALIZADAS$'; $nomCol = 'Series x repes realizadas' } else { $patron = '^PESO(\\(KG\\))?$'; $nomCol = 'Peso (kg)' }
         $ws = $wb.Worksheets.Item([string]$p.sheet); $fila = [int]$p.row
-        $u = $ws.UsedRange; $c1 = $u.Column; $c2 = [Math]::Max($u.Column + $u.Columns.Count - 1, $c1 + 1); $col = 0
+        $u = $ws.UsedRange; $c1 = $u.Column; $c2 = [Math]::Max($u.Column + $u.Columns.Count - 1, $c1 + 1); $col = 0; $colEj = 0
         # busca la cabecera hacia arriba desde la fila del ejercicio (la de su tabla del dia)
         for ($r = $fila; $r -ge [Math]::Max(1, $fila - 120) -and -not $col; $r--) {
           $vals = $ws.Range($ws.Cells.Item($r, $c1), $ws.Cells.Item($r, $c2)).Value2
-          for ($c = 1; $c -le ($c2 - $c1 + 1); $c++) { if ((Norm $vals[1, $c]) -match '^SERIESXREP(E|ETICIONE)?SREALIZADAS$') { $col = $c1 + $c - 1; break } }
+          for ($c = 1; $c -le ($c2 - $c1 + 1); $c++) { if ((Norm $vals[1, $c]) -match $patron) { $col = $c1 + $c - 1 } }
+          if ($col) { for ($c = 1; $c -le ($c2 - $c1 + 1); $c++) { if ((Norm $vals[1, $c]) -eq 'EJERCICIO') { $colEj = $c1 + $c - 1; break } } }
         }
-        if (-not $col) { Write-Host ('  PR: no encuentro la columna "Series x repes realizadas" en ' + $f.Name + ' / ' + $p.sheet + ' (fila ' + $fila + ')') -ForegroundColor Red; continue }
-        $celda = $ws.Cells.Item($fila, $col); $v = [double]$p.rm1
+        if (-not $col) { Write-Host ('  No encuentro la columna "' + $nomCol + '" en ' + $f.Name + ' / ' + $p.sheet + ' (fila ' + $fila + ')') -ForegroundColor Red; continue }
+        # si la planilla cambio y el ejercicio ya no esta en esa fila, se busca la fila mas cercana con el mismo nombre
+        if ($colEj -and $p.ex -and ((Norm $ws.Cells.Item($fila, $colEj).Value2) -ne (Norm $p.ex))) {
+          $otra = 0
+          for ($k = 1; $k -le 80 -and -not $otra; $k++) { foreach ($r in @(($fila + $k), ($fila - $k))) { if (-not $otra -and $r -ge 1 -and (Norm $ws.Cells.Item($r, $colEj).Value2) -eq (Norm $p.ex)) { $otra = $r } } }
+          if (-not $otra) { Write-Host ('  No encuentro "' + $p.ex + '" cerca de la fila ' + $fila + ' en ' + $f.Name + ' / ' + $p.sheet + '. No se anoto.') -ForegroundColor Red; continue }
+          $fila = $otra
+        }
+        $celda = $ws.Cells.Item($fila, $col); $v = [double]$p.valor
         if ($celda.Value2 -ne $v) { $celda.Value2 = $v; $cambios++ }
-        Write-Host ('  PR     ' + $f.Name + ' / ' + $p.sheet + ' fila ' + $fila + ': ' + $p.ex + ' ' + $p.kg + ' x ' + $p.reps + '  ->  1RM ' + $v) -ForegroundColor Cyan
+        if ($p.tipo -eq 'pr') {
+          Write-Host ('  PR     ' + $f.Name + ' / ' + $p.sheet + ' fila ' + $fila + ': ' + $p.ex + ' ' + $p.kg + ' x ' + $p.reps + '  ->  1RM ' + $v) -ForegroundColor Cyan
+        } else {
+          $fecha = ''; try { $fecha = [DateTimeOffset]::FromUnixTimeMilliseconds([int64]$p.t).LocalDateTime.ToString('dd-MM-yyyy') } catch {}
+          try { $celda.ClearComments() | Out-Null; [void]$celda.AddComment('EVA ' + $p.eva + ' (' + $fecha + '): bajado de ' + $p.from + ' a ' + $v + ' kg') } catch {}
+          $dep = 0; try { $dep = $celda.Dependents.Count } catch {}
+          Write-Host ('  EVA    ' + $f.Name + ' / ' + $p.sheet + ' fila ' + $fila + ': ' + $p.ex + '  ' + $p.from + ' kg  ->  ' + $v + ' kg (EVA ' + $p.eva + ')') -ForegroundColor Cyan
+          if ($dep) { Write-Host ('         ojo: ' + $dep + ' celda(s) de la planilla usan este peso en una formula y tambien cambian') -ForegroundColor Yellow }
+        }
+        $nuevos += $clave
       }
       if ($cambios) { $wb.Save() }
+      if ($nuevos.Count) { Add-Content -LiteralPath $RegFile -Value $nuevos -Encoding UTF8 }
     } catch {
-      Write-Host ('  PR: no se pudo escribir en ' + $f.Name + ': ' + $_.Exception.Message + '  (si esta abierto en otro programa, cierralo y vuelve a correr)') -ForegroundColor Red
+      Write-Host ('  No se pudo escribir en ' + $f.Name + ': ' + $_.Exception.Message + '  (si esta abierto en otro programa, cierralo y vuelve a correr)') -ForegroundColor Red
     } finally { if ($propio -and $wb) { $wb.Close($false) } }
   }
   if ($xlNuevo) { $xlNuevo.Quit(); [void][Runtime.InteropServices.Marshal]::ReleaseComObject($xlNuevo) }
@@ -1597,7 +1782,16 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
   if(a.setrpe){ const T=S.timer; if(!T||!T.set) return; const L=ensureLog(), st=(L.sets[T.set.ex]||[])[T.set.i]; if(!st) return; const v=+a.setrpe; st.rpe=st.rpe===v?null:v; saveLog();
     document.querySelectorAll('[data-setrpe]').forEach(x=>x.setAttribute('aria-pressed',+x.dataset.setrpe===st.rpe)); return }
   if(a.dayrpe){ S.dayRpe=S.dayRpe===+a.dayrpe?null:+a.dayrpe; document.querySelectorAll('[data-dayrpe]').forEach(x=>x.setAttribute('aria-pressed',+x.dayrpe===S.dayRpe||+x.dataset.dayrpe===S.dayRpe)); return }
+  if(a.dreva!==undefined){ const dr=curDraft(), v=+a.dreva; dr.eva=dr.eva===v?null:v; return render() }
+  if(a.seteva){ const [ex,i,v]=a.seteva.split('|').map(Number), L=ensureLog(), st=(L.sets[ex]||[])[i]; if(!st) return; st.eva=v; L.trainedAt=Date.now(); saveLog(); evaRefresh(); return render() }
+  if(a.teva!==undefined){ const T=S.timer; if(!T||!T.set) return; const L=ensureLog(), st=(L.sets[T.set.ex]||[])[T.set.i]; if(!st) return; st.eva=+a.teva; L.trainedAt=Date.now(); saveLog(); evaRefresh(); return render() }
   if(a.trpe){ if(!S.timer) return; if(a.trpe==='ok') return tRpeOk(); S.timer.editRpe=true; $('#t-rpebox').innerHTML=tRpeHtml(); const i=$('#t-rpe'); i&&i.focus(); return }
+  if(a.evaon||a.evazona||a.evaex||a.evaauto){ const at=JSON.parse(JSON.stringify(ATH())), c=at.eva=at.eva||{};
+    if(a.evaon) c.on=!c.on;
+    if(a.evazona){ const z=c.zonas||[], k=a.evazona; c.zonas=z.includes(k)?z.filter(q=>q!==k):[...z,k] }
+    if(a.evaex){ const k=a.evaex, e=evaExList(at).find(q=>q[0]===k), auto=e?evaAuto(e[1],c):false; c.ex=c.ex||{}; const nv=!(c.ex[k]!=null?c.ex[k]:auto); if(nv===auto) delete c.ex[k]; else c.ex[k]=nv }
+    if(a.evaauto&&c.ex) delete c.ex[a.evaauto];
+    Store.put('athletes',S.aid,at); return render() }
   if(a.theme){ setTheme(a.theme,null); return render() }
   if(a.tone){ setTheme(null,a.tone); return render() }
   if(a.cf!==undefined){S.cfilter=a.cf; return render()}
@@ -1636,29 +1830,31 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
     // día ya hecho: va directo al resumen (para repetirlo se mantiene presionado y se reinicia)
     if(L0&&L0.done){ S.day=+a.day; S.toast=''; S.view='resumen'; window.scrollTo(0,0); return render() }
     S.day=+a.day; S.view='sesion'; S.toast=''; S.obsOpen=false; const L=dayLog(S.week,S.day), d=wkObj(S.week).days.find(x=>x.n===S.day);
-    S.ex=L?Math.max(0,d.exercises.findIndex((x,i)=>((L.sets||{})[i]||[]).length<x.sets)):0; return render()}
+    S.ex=L?Math.max(0,d.exercises.findIndex((x,i)=>((L.sets||{})[i]||[]).length<x.sets&&!stoppedEx(L,i))):0; return render()}
   if(a.obs){S.obsTag=S.obsTag===a.obs?null:a.obs; document.querySelectorAll('[data-obs]').forEach(x=>x.setAttribute('aria-pressed',x.dataset.obs===S.obsTag)); return}
-  if(a.pref){ const k=a.pref, v=!prefsOf()[k]; setPref(k,v); S.toast=`${k==='warm'?'Calentamiento':'Aproximaciones'} ${v?'activado':'desactivado'}.`; S.toastErr=false; return render() }
+  if(a.pref){ const k=a.pref, v=!prefsOf()[k]; setPref(k,v); S.toast=`${PREF_LBL[k]||k} ${v?'activado':'desactivado'}.`; S.toastErr=false; return render() }
   const act=a.act; if(!act) return;
   const d=S.day&&PLAN()&&wkObj(S.week)&&wkObj(S.week).days.find(x=>x.n===S.day);
   switch(act){
     case 'back': S.view='dias'; S.toast=''; return render();
     case 'set': { const x=d.exercises[S.ex], L=ensureLog(); const num=v=>parseFloat(String(v).replace(',','.'));
+      const miss=evaMissing(d,L); if(miss) return flash(`Anota primero el EVA de la serie ${miss.i+1} de ${title(miss.x.name)}.`,true);
       const kg=num($('#in-kg').value), reps=parseInt($('#in-reps').value);
       if(isNaN(reps)) return flash('Anota cuántas repeticiones hiciste.',true); S.editSet=null;
       const dr0=curDraft(), rr=(($('#cur-rpe')||{}).value??dr0.rpe??'').toString().replace(',','.').trim(), rv=parseFloat(rr);
       if(rr!==''&&!(rv>=1&&rv<=10)) return flash('El RPE real va del 1 al 10.',true);
       // serie PR (el nombre empieza con "PR"): si se logró el peso y las reps pedidas, se guarda dónde anotar el 1RM en el Excel (lo hace el .bat)
       const prOk=prHit(x,kg,reps), pr=prOk?{pr:{t:Date.now(),file:ATH().file||null,sheet:PLAN().sheet||null,row:x.row||null,kg,reps,rm1:Math.round(rm1(kg,reps)*10)/10,meso:mesoOf(ATH()),w:S.week,d:S.day,ex:x.name}}:{};
-      const arr=(L.sets[S.ex]=L.sets[S.ex]||[]); S.draft=null; arr.push({...pr,kg:isNaN(kg)?null:kg,reps,rpe:rr===''?null:rv,rpePlan:x.rpeN||null,t:Date.now(),...(isBilbo(x)?{bilbo:true,rm1:rm1(kg,reps)}:{})}); L.trainedAt=Date.now(); saveLog();
+      const ev=evaOn(x)&&dr0.eva!=null?{eva:+dr0.eva}:{};
+      const arr=(L.sets[S.ex]=L.sets[S.ex]||[]); S.draft=null; arr.push({...pr,...ev,kg:isNaN(kg)?null:kg,reps,rpe:rr===''?null:rv,rpePlan:x.rpeN||null,t:Date.now(),...(isBilbo(x)?{bilbo:true,rm1:rm1(kg,reps)}:{})}); L.trainedAt=Date.now(); saveLog();
       // serie PR (el nombre empieza con "PR"): si se logró el peso y las reps pedidas, se guarda dónde anotar el 1RM en el Excel (lo hace el .bat)
-      const setRef={ex:S.ex,i:arr.length-1,name:x.name,n:arr.length,plan:x.rpeN};
+      const setRef={ex:S.ex,i:arr.length-1,name:x.name,n:arr.length,plan:x.rpeN,ev:evaOn(x)};
       // ejercicio terminado: pasa solo al siguiente (el descanso sigue corriendo)
       if(arr.length>=x.sets&&d.exercises[S.ex+1]){ S.ex++; S.obsOpen=false }
       S.toast=prOk?`¡PR logrado! ${fmt(kg,1)} kg × ${reps} · 1RM estimado ${fmt(rm1(kg,reps),1)} kg. Se anotará en tu Excel.`:''; S.toastErr=false; askNotif(); render(); return startTimer(x.rest,nextLabel(),setRef) }
-    case 'nextex': case 'skip': S.editSet=null; S.ex=Math.min(S.ex+1,d.exercises.length-1); S.toast=''; S.obsOpen=false; return render();
+    case 'nextex': case 'skip': { const m=evaMissing(d,ensureLog()); if(m) return flash(`Anota el EVA de la serie ${m.i+1} de ${title(m.x.name)} antes de seguir.`,true) } S.editSet=null; S.ex=Math.min(S.ex+1,d.exercises.length-1); S.toast=''; S.obsOpen=false; return render();
     case 'prevex': S.editSet=null; S.ex=Math.max(0,S.ex-1); S.toast=''; S.obsOpen=false; return render();
-    case 'finish': { const L=ensureLog(); L.done=true; L.finishedAt=Date.now(); L.trainedAt=L.finishedAt; saveLog(); stopTimer(); S.dayRpe=L.rpeDay??null; S.view='rpedia'; S.toast=''; return render() }
+    case 'finish': { const L=ensureLog(), m=evaMissing(d,L); if(m) return flash(`Anota el EVA de la serie ${m.i+1} de ${title(m.x.name)} antes de terminar.`,true); L.done=true; L.finishedAt=Date.now(); L.trainedAt=L.finishedAt; saveLog(); stopTimer(); S.dayRpe=L.rpeDay??null; S.view='rpedia'; S.toast=''; return render() }
     case 'rpedia-save': { const L=ensureLog(); L.rpeDay=S.dayRpe??null; saveLog(); S.view='resumen'; return render() }
     case 'rpedia-skip': S.view='resumen'; return render();
     case 'tomenu': S.tab='entrenar'; S.view='dias'; S.toast=''; window.scrollTo(0,0); return render();
@@ -1675,6 +1871,13 @@ document.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)
     case 'aprox-next': { const A=S.aprox; if(!A) return; const st=aproxSteps(A.kg), r=st[A.step], x=d.exercises[S.ex];
       if(A.step>=st.length-1){ const L=ensureLog(); (L.aprox=L.aprox||{})[S.ex]='done'; saveLog(); S.aprox=null } else A.step++;
       render(); askNotif(); return startTimer({max:r.rest,min:r.rest},S.aprox?`Siguiente aproximación: ${fmt(st[A.step].kg,1)} kg × ${st[A.step].reps}`:`Siguiente: serie de trabajo · ${fmt(A.kg,1)} kg · ${title(x.name)}`) }
+    case 'eva-apply': { const i=+a.ex, L=ensureLog(), p=evaPend(d,L,i); if(!p) return render(); const x=d.exercises[i], t=Date.now(); L.adj=L.adj||{};
+      if(p.R.stop){ L.adj[i]={stop:true,eva:p.v,set:p.j+1,t}; saveLog(); if(S.ex===i&&d.exercises[i+1]){ S.ex=i+1; S.obsOpen=false; S.editSet=null }
+        S.toast=`${title(x.name)}: detenido por dolor (EVA ${p.v}). Cuéntale a tu coach en una observación.`; S.toastErr=false; evaRefresh(); return render() }
+      L.adj[i]={kg:p.kg,from:p.base,pct:p.R.pct,eva:p.v,set:p.j+1,t,file:ATH().file||null,sheet:PLAN().sheet||null,row:x.row||null,ex:x.name,meso:mesoOf(ATH()),w:S.week,d:S.day};
+      saveLog(); if(S.draft) S.draft.kg=null;
+      S.toast=p.kg?`Peso bajado a ${fmt(p.kg,1)} kg en las series que quedan. Se anotará en el Excel.`:`Baja un ${fmt(p.R.pct*100)} % el peso en las series que quedan.`; S.toastErr=false; evaRefresh(); return render() }
+    case 'eva-no': { const L=ensureLog(); (L.adjNo=L.adjNo||{})[+a.ex]=+a.j; saveLog(); evaRefresh(); return render() }
     case 'daymenu-close': S.dayMenu=null; return render();
     case 'day-reset': { const n=+a.n, w=wkObj(S.week), dd=w.days.find(x=>x.n===n), id=logId(S.aid,S.week,n), L=DATA.logs[id];
       if(!confirm(`¿Estás seguro de reiniciar ${dayName(dd)}? Se reemplaza lo anotado (series, kg, reps y RPE), vuelve a quedar pendiente y queda con la fecha de hoy. Las observaciones se mantienen.`)) return;
@@ -1739,7 +1942,7 @@ function route(){ ipfLeerHash(); const h=decodeURIComponent((location.hash||'').
   else if(!S.isCoach&&S.myAid&&DATA.athletes[S.myAid]){S.mode='athlete'; S.aid=S.myAid}
   else if(S.isCoach){S.mode='coach'; if(S.ctab!=='notas') S.ctab='alumnos'}
   else S.mode=h&&S.ready<3?'loading':'nolink';
-  render(); if(S.ipfHash){ const d=S.ipfHash; S.ipfHash=null; ipfRecibir(d,null) } }
+  render(); if(S.ipfHash){ const d=S.ipfHash; S.ipfHash=null; ipfRecibir(d,null) } if(S.mode!=='nolink'&&S.mode!=='loading') stampLegacy() }
 window.addEventListener('hashchange',route);
 function setMeso(aid,k){ const at=JSON.parse(JSON.stringify(DATA.athletes[aid])); at.meso=k; Store.put('athletes',aid,at); if(aid===S.aid) S.week=null; flash(`${at.name.split(' ')[0]} ahora está en ${mesoLabel(k)}.`) }
 document.addEventListener('input',e=>{const t=e.target;
