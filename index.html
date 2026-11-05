@@ -121,7 +121,7 @@ textarea{resize:vertical;min-height:64px}
 .note.bad{border-color:var(--red-fg)}.note.ok{border-color:var(--green)}.note.done{opacity:.65}
 .note .meta{font:500 11px var(--mono);color:var(--muted);letter-spacing:.02em}
 .note .reply{font-size:13px;background:var(--surface-2);border-radius:8px;padding:6px 8px}
-.timer{position:fixed;inset:0;z-index:20;background:color-mix(in srgb,var(--bg) 95%,transparent);display:flex;align-items:center;justify-content:center;padding:24px 16px}
+.timer{position:fixed;inset:0;z-index:20;background:color-mix(in srgb,var(--bg) 95%,transparent);display:flex;justify-content:center;padding:24px 16px 0;overflow-y:auto}
 .timer[hidden]{display:none}
 [hidden]{display:none!important}
 .rpebox{width:100%;background:var(--surface);border:2px solid var(--gold);border-radius:14px;padding:12px 14px;text-align:left;box-shadow:0 0 0 4px color-mix(in srgb,var(--gold) 18%,transparent)}
@@ -146,7 +146,10 @@ textarea{resize:vertical;min-height:64px}
 .pie ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px;font-size:13px}
 .pie li{display:grid;grid-template-columns:12px 1fr auto;gap:6px;align-items:center}
 .pie li i{width:10px;height:10px;border-radius:2px}
-.timer .in{width:100%;max-width:420px;display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center}
+.timer .in{width:100%;max-width:420px;display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center;margin:auto 0}
+.timer .btns3{position:sticky;bottom:0;padding:10px 0 calc(14px + env(safe-area-inset-bottom));background:color-mix(in srgb,var(--bg) 96%,transparent)}
+.timer .in.eva .ring{width:min(52vw,200px)}.timer .in.eva .ring .tt b{font-size:52px}.timer .in.eva>img{display:none}
+.evasel{display:flex;align-items:center;gap:10px;margin-top:8px}.evasel select{flex:1;font:600 17px var(--body);padding:10px}
 .ring{position:relative;width:min(78vw,280px);aspect-ratio:1;max-width:100%}
 .ring svg{width:100%;height:100%;transform:rotate(-90deg)}
 .ring .tt{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
@@ -1519,7 +1522,7 @@ function startTimer(rest,label,set){S.timer={end:Date.now()+rest.max*1000,total:
   try{navigator.wakeLock&&navigator.wakeLock.request('screen').then(w=>wake=w).catch(()=>{})}catch(e){}
   try{ac=ac||new (window.AudioContext||window.webkitAudioContext)()}catch(e){}
   const el=$('#timer'), C=2*Math.PI*54;
-  el.innerHTML=`<div class="in"><img src="${LOGO}" alt="" style="width:56px"><div class="eyebrow">Descanso</div><div class="ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="54" fill="none" stroke="var(--surface-2)" stroke-width="8"/><circle id="t-arc" cx="60" cy="60" r="54" fill="none" stroke="var(--gold)" stroke-width="8" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="0"/></svg><div class="tt"><b id="t-left"></b><span id="t-tot">de ${fmtRest(rest.max)}</span></div></div>
+  el.innerHTML=`<div class="in${set&&set.ev?' eva':''}"><img src="${LOGO}" alt="" style="width:56px"><div class="eyebrow">Descanso</div><div class="ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="54" fill="none" stroke="var(--surface-2)" stroke-width="8"/><circle id="t-arc" cx="60" cy="60" r="54" fill="none" stroke="var(--gold)" stroke-width="8" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="0"/></svg><div class="tt"><b id="t-left"></b><span id="t-tot">de ${fmtRest(rest.max)}</span></div></div>
   <div id="t-msg"></div>
   ${set?`<div id="t-rpebox" style="width:100%">${tRpeHtml()}</div>`:''}
   ${set&&set.ev?`<div id="t-evabox" style="width:100%">${tEvaHtml()}</div>`:''}
@@ -1533,7 +1536,9 @@ function tRpeHtml(){ const T=S.timer; if(!T||!T.set) return ''; const st=(ensure
 // EVA de la serie recién hecha (si el ejercicio lo pide) y, si es alto, la recomendación
 function tEvaHtml(){ const T=S.timer; if(!T||!T.set||!T.set.ev) return ''; const L=ensureLog(), st=(L.sets[T.set.ex]||[])[T.set.i]||{};
   const d=wkObj(S.week)&&wkObj(S.week).days.find(x=>x.n===S.day), p=st.eva!=null&&d?evaPend(d,L,T.set.ex):null;
-  return `<div class="rpebox ${st.eva!=null?'ok':''}"><div class="q">${st.eva!=null?`EVA registrado ✓ <b class="num" style="color:${evaCol(st.eva)}">${st.eva}</b>`:'¿Sentiste dolor? Anota tu EVA (obligatorio)'} <span class="muted small">serie ${T.set.n}</span></div>${evaChips(st.eva,'data-teva')}</div>${evaRecHtml(p)}` }
+  const opts=`<option value="">${st.eva!=null?'Cambiar EVA…':'Elegir EVA (0 a 10)…'}</option>${[0,1,2,3,4,5,6,7,8,9,10].map(v=>`<option value="${v}">${v}${v===0?' · sin dolor':v===10?' · dolor máximo':''}</option>`).join('')}`;
+  return `<div class="rpebox ${st.eva!=null?'ok':''}" style="text-align:left"><div class="q" style="margin:0">${st.eva!=null?`EVA registrado ✓ <b class="num" style="color:${evaCol(st.eva)}">${st.eva}</b>`:'¿Sentiste dolor? Anota tu EVA (obligatorio)'} <span class="muted small">serie ${T.set.n}</span></div>
+    <div class="evasel"><select class="t" id="t-eva" aria-label="EVA de la serie">${opts}</select></div></div>${evaRecHtml(p)}` }
 const evaRefresh=()=>{ const b=$('#t-evabox'); if(b) b.innerHTML=tEvaHtml() };
 function tRpeOk(){ const T=S.timer, inp=$('#t-rpe'); if(!T||!T.set||!inp) return; const raw=inp.value.replace(',','.').trim(), v=parseFloat(raw);
   if(raw===''){ inp.style.borderColor='var(--red)'; inp.focus(); return }
@@ -1952,7 +1957,8 @@ document.addEventListener('input',e=>{const t=e.target;
   if(t.id==='t-rpe'||t.id==='cur-rpe'||t.id==='edit-rpe'||t.id==='coach-rpe'){ const raw=t.value.replace(',','.').trim(), v=parseFloat(raw); t.style.borderColor=raw===''||(v>=1&&v<=10)?'':'var(--red)'; return }
   if((t.id==='in-reps'||t.id==='in-kg')&&$('#bilbo-1rm')) $('#bilbo-1rm').innerHTML=bilboTxt($('#in-kg').value,$('#in-reps').value) });
 document.addEventListener('keydown',e=>{ if(e.key==='Enter'&&e.target.id==='t-rpe'){ e.preventDefault(); tRpeOk() } if(e.key==='Enter'&&e.target.id==='coach-rpe'){ e.preventDefault(); const b=document.querySelector('[data-act="cset-ok"]'); b&&b.click() } if(e.key==='Enter'&&e.target.id==='cur-rpe'){ e.preventDefault(); const b=document.querySelector('[data-act="currpe-ok"]'); b&&b.click() } if(e.key==='Enter'&&e.target.id==='edit-rpe'){ e.preventDefault(); const b=document.querySelector('[data-act="editset-ok"]'); b&&b.click() } });
-document.addEventListener('change',e=>{const t=e.target; if(t.dataset&&t.dataset.meso) setMeso(t.dataset.meso,t.value); if(t.id==='aprox-kg') render()});
+document.addEventListener('change',e=>{const t=e.target;
+  if(t.id==='t-eva'&&t.value!==''){ const T=S.timer; if(T&&T.set){ const L=ensureLog(), st=(L.sets[T.set.ex]||[])[T.set.i]; if(st){ st.eva=+t.value; L.trainedAt=Date.now(); saveLog(); evaRefresh(); render() } } return } if(t.dataset&&t.dataset.meso) setMeso(t.dataset.meso,t.value); if(t.id==='aprox-kg') render()});
 // no borrar lo que alguien está escribiendo cuando llegan datos nuevos
 function softRender(){const ae=document.activeElement; if(ae&&/INPUT|TEXTAREA/.test(ae.tagName)&&ae.closest('main')){S.dirty=true;return} render()}
 // si el campo pierde el foco porque se apretó un botón, se espera a que termine ese clic antes de redibujar (si no, el botón desaparece y el clic se pierde)
