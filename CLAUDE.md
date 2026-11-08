@@ -72,6 +72,8 @@ La app decide al arrancar (`Store.init`) dónde guarda:
 
 En modo `supa`, `Store.pull()` corre al inicio, cada 20 s y al volver a la pestaña. Trae solo lo cambiado desde `since` (cada 15 tiradas trae todo). `Store.put()` actualiza `DATA` al tiro y encola la escritura por clave para no pisarse.
 
+**Sin señal (gimnasio):** cada `Store.put()` queda primero en `localStorage` `powerosso.outbox` y se borra solo cuando el servidor confirma (`send`, `flush`). Se reintenta al volver la conexión (`online`), cada 20 s y al abrir; mientras tanto `pull` no la pisa (la clave sigue en `pending` y el outbox se superpone a lo que llega). Solo se descarta con 400/401/403/404/422. Cada pull con cambios guarda una copia (`powerosso.snap`: DATA + planillas ya leídas) para abrir la app sin señal (`fromSnap`). La lista de días avisa "N registros sin subir". Antes de esto (hasta 2026-11-08) un `pw_put` fallido se perdía y el siguiente pull borraba lo anotado.
+
 ### Acceso por link (`?k=<token>`)
 
 - No hay correo ni contraseña. Cada persona (coach y alumnos) tiene un link `https://ossos745.github.io/powerosso-app/?k=<token>`. El token está en `athletes.token`.

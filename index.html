@@ -312,7 +312,7 @@ const savedToken={get(){try{return localStorage.getItem('powerosso.k')||''}catch
 async function rpc(fn,args){ const r=await fetch(`${SB.url.replace(/\/$/,'')}/rest/v1/rpc/${fn}`,{method:'POST',headers:{apikey:SB.anonKey,Authorization:'Bearer '+SB.anonKey,'Content-Type':'application/json'},body:JSON.stringify(args)});
   const t=await r.text(); let j=null; try{j=t?JSON.parse(t):null}catch(e){} if(!r.ok){const e=new Error((j&&j.message)||t||r.statusText); e.status=r.status; throw e} return j }
 const Store={kind:'local',db:null,q:{},subs:[],token:'',since:null,pulls:0,pending:new Set(),files:{},parsed:{},
-  async init(){ if(SB.url&&SB.anonKey){ this.kind='supa'; this.token=urlToken()||savedToken.get(); this.fromSaved=!urlToken(); return }
+  async init(){ if(SB.url&&SB.anonKey){ this.kind='supa'; this.token=urlToken()||savedToken.get(); this.fromSaved=!urlToken(); this.loadOut(); return }
     let db=null; try{ if(window.claude&&window.claude.use) db=await window.claude.use('db') }catch(e){} if(db){this.kind='db';this.db=db} },
   // Supabase: trae todo lo visible para esta clave (o solo lo cambiado) y lee las planillas nuevas
   async pull(full){ full=full||!this.since||(++this.pulls%15===0);
@@ -320,8 +320,15 @@ const Store={kind:'local',db:null,q:{},subs:[],token:'',since:null,pulls:0,pendi
     this.since=new Date(Date.parse(r.now)-5000).toISOString(); S.isCoach=!!r.me.coach; S.myAid=r.me.id;
     let changed=full; for(const c of ['athletes','logs','notes']){ const inc=r[c]||{}; if(full){ const keep={}; for(const k of Object.keys(DATA[c])) if(this.pending.has(c+'/'+k)) keep[k]=DATA[c][k]; DATA[c]=Object.assign({},inc,keep) }
       else for(const k in inc){ if(this.pending.has(c+'/'+k)) continue; DATA[c][k]=inc[k]; changed=true } }
+    // lo que todavía no se pudo subir manda sobre lo que viene del servidor
+    for(const o of Object.values(this.outbox)) if(o.tok===this.token&&DATA[o.coll]){ DATA[o.coll][o.id]=o.body; this.pending.add(o.coll+'/'+o.id) }
     if(full) this.files=Object.assign({},r.files); else Object.assign(this.files,r.files||{});
-    if(await this.readFiles()) changed=true; return changed },
+    if(await this.readFiles()) changed=true; if(changed) this.snap(); return changed },
+  // copia de lo último bajado, para poder abrir la app y entrenar sin señal
+  snap(){ try{ localStorage.setItem('powerosso.snap',JSON.stringify({tok:this.token,at:Date.now(),me:{coach:S.isCoach,id:S.myAid},DATA,parsed:this.parsed,files:this.files})) }catch(e){} },
+  fromSnap(){ try{ const o=JSON.parse(localStorage.getItem('powerosso.snap')||'null'); if(!o||o.tok!==this.token) return false;
+      Object.assign(DATA,o.DATA); this.parsed=o.parsed||{}; this.files=o.files||{}; S.isCoach=!!o.me.coach; S.myAid=o.me.id;
+      for(const x of Object.values(this.outbox)) if(x.tok===this.token&&DATA[x.coll]){ DATA[x.coll][x.id]=x.body; this.pending.add(x.coll+'/'+x.id) } return true }catch(e){ return false } },
   async readFiles(){ let ch=false; const need=[...new Set(Object.values(DATA.athletes).map(a=>a.file).filter(Boolean))];
     for(const name of need){ const mt=this.files[name]; if(mt===undefined) continue; if(this.parsed[name]&&this.parsed[name].mtime===mt) continue;
       try{ const b64=await rpc('pw_file',{p_token:this.token,p_name:name}); if(!b64) continue; this.parsed[name]={mtime:mt,...wbPlans(XLSX.read(b64,{type:'base64'}))}; ch=true }catch(e){ console.warn('planilla',name,e) } }
@@ -330,8 +337,22 @@ const Store={kind:'local',db:null,q:{},subs:[],token:'',since:null,pulls:0,pendi
   saveLocal(o){try{localStorage.setItem('powerosso.v3',JSON.stringify(o))}catch(e){}},
   listen(coll,cb){ if(this.kind==='db'){ return this.db.collection(coll).onSnapshot(s=>{const o={}; s.docs.forEach(d=>o[d.id]=d.data()); cb(o)}, e=>{flash('Se perdió la conexión con los datos. Recarga la página.',true)}) }
     const f=()=>cb(Object.assign({},this.local()[coll]||{})); this.subs.push(f); f(); },
+  // Supabase: cada escritura queda primero en el teléfono (powerosso.outbox) y se borra de ahí solo cuando el servidor la confirma.
+  // Si no hay señal (gimnasio), se reintenta sola: al volver la conexión, cada 20 s y al abrir la app. Mientras tanto la sincronización no la pisa.
+  outbox:{},
+  loadOut(){ try{ this.outbox=JSON.parse(localStorage.getItem('powerosso.outbox')||'{}')||{} }catch(e){ this.outbox={} }
+    for(const [k,o] of Object.entries(this.outbox)) if(o.tok===this.token) this.pending.add(k) },
+  saveOut(){ try{ localStorage.setItem('powerosso.outbox',JSON.stringify(this.outbox)) }catch(e){} },
+  unsent(){ return Object.values(this.outbox).filter(o=>o.tok===this.token).length },
+  send(k){ return this.q[k]=(this.q[k]||Promise.resolve()).then(()=>{ const o=this.outbox[k]; if(!o) return true; const n=o.n;
+      return rpc('pw_put',{p_token:o.tok,p_coll:o.coll,p_id:o.id,p_data:o.body}).then(()=>{ const c=this.outbox[k]; if(c&&c.n===n){ delete this.outbox[k]; this.pending.delete(k); this.saveOut() } this.netOk(); return true },
+        e=>{ if([400,401,403,404,422].includes(e.status)||/permiso/.test((e&&e.message)||'')){ delete this.outbox[k]; this.pending.delete(k); this.saveOut(); flash('No tienes permiso para guardar esto.',true); return false }
+          this.netBad(); return false }) }) },
+  flush(){ for(const [k,o] of Object.entries(this.outbox)) if(o.tok===this.token) this.send(k) },
+  netBad(){ if(S.offline) return; S.offline=true; flash('Sin conexión: lo que anotes queda guardado en este teléfono y se sube solo cuando vuelva la señal. No cierres sesión ni borres los datos del navegador.',true) },
+  netOk(){ if(!S.offline||this.unsent()) return; S.offline=false; flash('Conexión recuperada: todo quedó guardado.') },
   put(coll,id,body){ if(coll==='logs') stampLog(body); DATA[coll][id]=body; if(this.kind==='supa'){ const k=coll+'/'+id; this.pending.add(k);
-      this.q[k]=(this.q[k]||Promise.resolve()).then(()=>rpc('pw_put',{p_token:this.token,p_coll:coll,p_id:id,p_data:body})).then(()=>true,e=>{ flash(e.status===403||/permiso/.test(e.message)?'No tienes permiso para guardar esto.':'No se pudo guardar. Revisa tu conexión.',true); return false }).finally(()=>this.pending.delete(k)); return this.q[k] }
+      this.outbox[k]={tok:this.token,coll,id,body,n:Date.now()+Math.random()}; this.saveOut(); return this.send(k) }
     if(this.kind==='db'){ const k=coll+'/'+id; this.q[k]=(this.q[k]||Promise.resolve()).then(()=>this.db.collection(coll).doc(id).set(body)).catch(e=>flash(e&&e.code==='invalid_argument'?'No tienes permiso para guardar aquí. Pide a tu coach que te comparta la app como editor.':e&&e.code==='quota_exceeded'?'La base de datos está llena.':'No se pudo guardar. Revisa tu conexión.',true)); return this.q[k] }
     const o=this.local(); (o[coll]=o[coll]||{})[id]=body; this.saveLocal(o); return Promise.resolve() },
   del(coll,id){ delete DATA[coll][id]; if(this.kind==='supa') return rpc('pw_del',{p_token:this.token,p_coll:coll,p_id:id}).catch(()=>flash('No se pudo borrar.',true));
@@ -423,7 +444,8 @@ function vDias(){const w=wkObj(S.week), P=PLAN();
   const tog=`<div class="chips"><button class="chip" data-wview="0" aria-pressed="${!S.wview}">Entrenar</button><button class="chip" data-wview="1" aria-pressed="${!!S.wview}">Vista semana</button></div>`;
   if(S.wview) return `${toastHtml()}${tog}${vSemana(w)}`;
   const pr=prefsOf(), sw=(k,l)=>`<button class="chip" data-pref="${k}" aria-pressed="${!!pr[k]}">${pr[k]?'✓ ':''}${l}: ${pr[k]?'activado':'desactivado'}</button>`;
-  return `${toastHtml()}${tog}<h2 class="h2">¿Qué día entrenas hoy?</h2>
+  const un=Store.kind==='supa'?Store.unsent():0;
+  return `${toastHtml()}${tog}${un?`<div class="card small" style="border-color:var(--amber)"><b style="color:var(--amber)">${un} registro${un>1?'s':''} sin subir todavía</b><div class="muted">Quedó guardado en este teléfono por falta de señal. Se sube solo cuando vuelva la conexión; no borres los datos del navegador.</div></div>`:''}<h2 class="h2">¿Qué día entrenas hoy?</h2>
   ${w.days.map(d=>{const L0=dayLog(w.n,d.n), pm=planMetrics(d), done=L0&&L0.done, nSets=d.exercises.reduce((a,x)=>a+x.sets,0), doneSets=L0?Object.values(L0.sets||{}).reduce((a,s)=>a+s.length,0):0, L=L0&&(done||doneSets)?L0:null;
     return `<button class="card day ${done?'done':''}" data-day="${d.n}"><div class="dn">${d.n}<small>${dayShort(d).toUpperCase()}</small></div>
     <div><div class="t">${title(d.focus)||dayName(d)}</div><div class="small muted">${d.exercises.length} ejercicios · ${nSets} series · ${fmt(pm.ton/1000,1)} t plan</div>${L&&!done?`<div class="bar" style="margin-top:6px"><b style="width:${100*doneSets/nSets}%"></b></div>`:''}</div>
@@ -2035,11 +2057,13 @@ const installBanner=()=>installEv?`<div class="banner"><span>Instala Powerosso c
   try{ if(Store.kind==='supa'&&'serviceWorker' in navigator&&location.protocol==='https:') navigator.serviceWorker.register('sw.js').catch(()=>{}) }catch(e){}
   if(Store.kind==='supa'){
     if(!Store.token){ S.mode='nolink'; return render() }
-    try{ await Store.pull(true) }catch(e){ S.mode='nolink'; if(e.status){ S.badLink=true; if(Store.fromSaved) savedToken.clear() } else S.netErr=true; return render() }
+    try{ await Store.pull(true) }catch(e){ if(!e.status&&Store.fromSnap()){ S.offline=true }
+      else { S.mode='nolink'; if(e.status){ S.badLink=true; if(Store.fromSaved) savedToken.clear() } else S.netErr=true; return render() } }
     savedToken.set(Store.token,S.isCoach);
-    S.ready=3; if(S.isCoach&&new URLSearchParams(location.search).get('ver')==='obs') S.ctab='notas'; route(); if(S.isCoach) pushState();
+    S.ready=3; if(S.isCoach&&new URLSearchParams(location.search).get('ver')==='obs') S.ctab='notas'; route(); if(S.offline) flash('Sin conexión: estás viendo lo último guardado en este teléfono. Lo que anotes se sube solo cuando vuelva la señal.',true); if(S.isCoach) pushState();
     try{ navigator.serviceWorker&&navigator.serviceWorker.addEventListener('message',e=>{ if(e.data&&e.data.obs&&S.isCoach){ location.hash=''; S.mode='coach'; S.ctab='notas'; Store.pull(false).finally(render) } }) }catch(e){}
-    const again=()=>{ if(document.hidden) return; Store.pull(false).then(ch=>ch&&softRender()).catch(()=>{}) };
+    const again=()=>{ if(document.hidden) return; Store.flush(); Store.pull(false).then(ch=>ch&&softRender()).catch(()=>{}) };
+    window.addEventListener('online',()=>Store.flush()); Store.flush();
     setInterval(again,20000); document.addEventListener('visibilitychange',again); return }
   if(Store.kind==='db'){ let u=null; try{u=await window.claude.use('user')}catch(e){} S.isCoach=u?await u.isOwner():false }
   else S.isCoach=true;
