@@ -126,12 +126,12 @@ Reglas de permisos importantes:
 
 ### Alumno
 - **Entrenar**: elige semana y día, o "Vista semana" tipo Excel. La semana por defecto (`currentWeek`) es la del último entrenamiento registrado por fecha en el mesociclo activo; sin registros, la primera.
-- Sesión ejercicio por ejercicio: kg, reps y RPE por serie; temporizador de descanso según la planilla con aviso (sonido y notificación) al terminar; paso automático a la siguiente serie/ejercicio; RPE real por serie y por día con ✓ "RPE registrado".
+- Sesión ejercicio por ejercicio: kg, reps y RPE por serie; temporizador de descanso según la planilla con aviso (sonido y notificación) al terminar (los botones −15 s, +30 s y Saltar quedan siempre a la vista; el contenido de arriba se desplaza); paso automático a la siguiente serie/ejercicio; RPE real por serie y por día con ✓ "RPE registrado".
 - **Calentamiento recomendado** al abrir un día: 4 ejercicios de movilidad con animación SVG (`FIG`, `figSvg`). Pierna y lumbar si ≥60% de los ejercicios son de tren inferior; brazos y tronco si ≤40%; si no, mixto 2+2. 1 min de descanso. Se puede dejar observación por ejercicio.
 - **Aproximaciones** antes de básicos con barra (`LIFT` ≠ Accesorio, sin mancuernas ni máquina; no se repiten si el ejercicio anterior es el mismo levantamiento): barra 20 kg 8–10 reps 1 min, 40% ×5 1:30, 60% ×4 2:00, 75% ×3 2:00, 90% ×2 3:00. Redondeo a 2,5 kg. El peso de trabajo es editable.
 - Interruptores en "Antes de entrenar" al final de la lista de días: calentamiento, aproximaciones, animaciones de ejercicios y analizador de video (se guardan en `<aid>~PREFS`).
-- **Animaciones de ejercicios**: figura SVG animada bajo el nombre del ejercicio (`FIGX`, elegida por nombre con `FIGMAP`/`exFig`; 21 movimientos que cubren los ejercicios de las planillas). Ejercicio sin patrón conocido: sin animación.
-- **Escala EVA**: si el coach la activó, chips 0–10 en la serie y en el temporizador; con EVA alto, tarjeta de recomendación ("Bajar a X kg" / "Terminar este ejercicio" / "Seguir igual"). El peso bajado se muestra en la sesión y el .bat lo escribe en la planilla.
+- **Animaciones de ejercicios**: figura SVG animada bajo el nombre del ejercicio (`FIGX`, elegida por nombre con `FIGMAP`/`exFig`; 23 movimientos que cubren los ejercicios de las planillas: los 22 de `FIGX` más el band pull-apart de `FIG`; peso muerto rumano con la barra pegada a las piernas, remo T con el pecho apoyado (`remot`), banca con los codos bajo el banco). Ejercicio sin patrón conocido: sin animación.
+- **Escala EVA**: si el coach la activó, chips 0–10 en la serie y lista desplegable 0–10 en el temporizador; con EVA alto, tarjeta de recomendación ("Bajar a X kg" / "Terminar este ejercicio" / "Seguir igual"). El peso bajado se muestra en la sesión y el .bat lo escribe en la planilla.
 - **Mantener presionado un día** → "Reiniciar día" con confirmación. Tocar un día hecho abre su resumen.
 - **Serie Bilbo**: 1RM estimado = peso × reps × 0,03 + peso (`rm1`).
 - **Serie PR**: ejercicio cuyo nombre empieza con "PR". Si el alumno anota kg ≥ plan y reps ≥ plan, la serie guarda `pr` (ver modelo de datos) y el .bat lo escribe en el Excel.
