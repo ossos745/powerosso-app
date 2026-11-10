@@ -633,9 +633,9 @@ function evaAuto(x,c){ const t=normU(x.name); return (c.zonas||[]).some(z=>{ con
   if(z.startsWith('m:')){ const g=z.slice(2), m=musclesOf(x.name); return (m[g]||0)>=0.2||muscle(x.name)===g }
   return Z[2].test(t)&&!(Z[3]&&Z[3].test(t)) }) }
 function evaOn(x,aid=S.aid){ const c=evaCfg(aid); if(!c.on||!x) return false; const o=(c.ex||{})[exKey(x.name)]; return o!=null?!!o:evaAuto(x,c) }
-// recomendación según el dolor anotado (EVA 0–3: seguir)
-const EVA_REGLA=v=>v>=8?{stop:true,lbl:'Dolor alto',txt:'Recomendación: para este ejercicio por hoy.'}:v>=6?{pct:.2,lbl:'Dolor moderado-alto',txt:'Recomendación: baja un 20 % el peso.'}:v>=4?{pct:.1,lbl:'Dolor moderado',txt:'Recomendación: baja un 10 % el peso.'}:null;
-const evaCol=v=>v>=8?'var(--red-fg)':v>=6?'#e07a3a':v>=4?'var(--amber)':'var(--green)';
+// recomendación según el dolor anotado (criterio de Benjamín, 2026-11-10): EVA 0–2 seguir; 3–5 bajar el peso; 6–10 terminar el ejercicio
+const EVA_REGLA=v=>v>=6?{stop:true,lbl:'Dolor alto',txt:'Recomendación: termina este ejercicio por hoy.'}:v>=5?{pct:.2,lbl:'Dolor moderado',txt:'Recomendación: baja un 20 % el peso.'}:v>=3?{pct:.1,lbl:'Dolor leve-moderado',txt:'Recomendación: baja un 10 % el peso.'}:null;
+const evaCol=v=>v>=6?'var(--red-fg)':v>=5?'#e07a3a':v>=3?'var(--amber)':'var(--green)';
 const roundKg=(v,x)=>isBasic(x)?r25(v):Math.round(v*2)/2;
 const adjOf=(L,i)=>((L&&L.adj)||{})[i]||null;
 const stoppedEx=(L,i)=>!!(adjOf(L,i)&&adjOf(L,i).stop);
@@ -1446,7 +1446,7 @@ function vEvaCoach(){ const a=ATH(), c=evaCfg(), list=evaExList(a), on=!!c.on, z
   <div class="small muted" style="margin-top:6px">Con la escala activada, ${first} anota su dolor (EVA) en cada serie de los ejercicios marcados, de forma obligatoria, en el ejercicio o en el descanso. Si el EVA es alto, la app le recomienda bajar el peso o parar. Si está desactivada, no ve la opción.</div>
   ${on?`<div class="eyebrow" style="margin:12px 0 6px">Zona de la lesión</div><div class="chips">${EVA_ZONAS.map(([k,l])=>`<button class="chip" data-evazona="${k}" aria-pressed="${z.includes(k)}">${l}</button>`).join('')}</div>
   <div class="small muted" style="margin-top:6px">Los ejercicios que cargan esa zona quedan con EVA solos. Toca un ejercicio para ponerle o quitarle el EVA a mano (↺ vuelve a lo automático).</div>`:''}
-  <div class="small" style="margin-top:10px"><b>Recomendación al alumno:</b> EVA 0–3 sigue · 4–5 bajar 10 % · 6–7 bajar 20 % · 8–10 parar el ejercicio. Si acepta bajar, el peso nuevo se anota en su Excel con el actualizador (.bat).</div></div>
+  <div class="small" style="margin-top:10px"><b>Recomendación al alumno:</b> EVA 0–2 sigue · 3–4 bajar 10 % · 5 bajar 20 % · 6–10 terminar el ejercicio. Si acepta bajar, el peso nuevo se anota en su Excel con el actualizador (.bat).</div></div>
   ${on?`<div class="card"><div class="row"><span class="eyebrow">Ejercicios · ${esc(mesoLabel(mesoOf(a)||''))}</span><span class="pill gold">${n} con EVA</span></div>${rows||'<div class="muted small">Todavía no tiene planilla.</div>'}</div>`:''}
   ${hist.length?`<div class="card"><div class="eyebrow">EVA registrados</div><div class="tbl wrap" style="margin-top:6px"><table><thead><tr><th>Sesión</th><th>Ejercicio</th><th>EVA máx.</th><th>Ajuste</th></tr></thead><tbody>${hist.map(h=>`<tr><td class="num">S${h.o.L.w} D${h.o.L.d}<div class="small muted">${fdate(h.o.t)}</div></td><td>${h.x?title(h.x.name):'—'}</td><td class="num"><b style="color:${evaCol(h.max)}">${h.max}</b></td><td class="small">${h.A?h.A.stop?'Paró':h.A.kg?`${fmt(h.A.from,1)} → ${fmt(h.A.kg,1)} kg`:`−${fmt(h.A.pct*100)} %`:'—'}</td></tr>`).join('')}</tbody></table></div></div>`:''}` }
 function vCargar(){const P=PLAN(), w=P.weeks, nEx=w.reduce((a,x)=>a+x.days.reduce((b,d)=>b+d.exercises.length,0),0);
