@@ -150,7 +150,7 @@ Reglas de permisos importantes:
 ### Coach (panel)
 - **Alumnos**: crear y eliminar, asignar planilla, elegir mesociclo activo, copiar link personal, ver la app como el alumno.
 - **Observaciones**: responder (borrador en `S.replyDraft`), marcar revisadas, borrar.
-- **Escala EVA** (pestaña en la ficha del alumno, `vEvaCoach`): activar, elegir zona(s) de la lesión, forzar o quitar EVA por ejercicio, historial de EVA. En Rutina/Resumen (`dayTable`) se ve el EVA y el ajuste.
+- **Escala EVA** (pestaña en la ficha del alumno, `vEvaCoach`): activar, elegir zona(s) de la lesión, forzar o quitar EVA por ejercicio, historial de EVA. El EVA que anotan los alumnos se ve junto a cada ejercicio (`evaCell`): en Ver rutina y en el resumen del día (`dayTable`) una pastilla de color por serie ("S2 · EVA 3") más el ajuste (bajó a X kg, paró, siguió igual); en Plan vs real va en el chip de cada serie y el ajuste bajo el ejercicio.
 - **Plan vs real**: series, kg y RPE planificados contra reales; el coach puede poner el RPE y borrar el registro de un día.
 - **Estadísticas**: general y por alumno (Bilbo, filtros, chips de mesociclo con registros `S.statMeso`, gráficos de RPE por semana).
 - Exportar Excel, exportar/importar respaldo `.json`, descargar el actualizador `.bat`.
