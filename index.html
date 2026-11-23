@@ -530,14 +530,18 @@ const prefsOf=(aid=S.aid)=>({warm:true,aprox:true,gif:true,ipf:false,...(DATA.lo
 const PREF_LBL={warm:'Calentamiento',aprox:'Aproximaciones',gif:'Animaciones de ejercicios',ipf:'Analizador de video'};
 // última conexión = la última vez que el alumno inició una rutina (startedAt del log del día; si falta, su primera serie).
 // Un día reiniciado y sin series no cuenta.
-function lastSeen(aid){ let t=0;
+// devuelve {t, L}: la hora de inicio y el log de la rutina iniciada más reciente
+function lastStart(aid){ let t=0, last=null;
   Object.values(DATA.logs).forEach(L=>{ if(!L||L.aid!==aid||L.prefs) return; const ts=Object.values(L.sets||{}).flat().map(x=>x&&+x.t||0).filter(Boolean);
-    if(L.resetAt&&!ts.length) return; t=Math.max(t,+L.startedAt||(ts.length?Math.min(...ts):0)) }); return t }
-function seenHtml(aid){ const t=lastSeen(aid); if(!t) return '<div class="small muted">● Última conexión: sin rutinas iniciadas</div>';
+    if(L.resetAt&&!ts.length) return; const st=+L.startedAt||(ts.length?Math.min(...ts):0); if(st>t){ t=st; last=L } }); return {t,L:last} }
+const lastSeen=aid=>lastStart(aid).t;
+function seenHtml(aid){ const {t,L}=lastStart(aid); if(!t) return '<div class="small muted">● Última conexión: sin rutinas iniciadas</div>';
   const m=Math.floor((Date.now()-t)/60000), h=Math.floor(m/60), d=Math.floor(h/24);
   const rel=m<5?'ahora':m<60?`hace ${m} min`:h<24?`hace ${h} h`:d===1?'ayer':d<30?`hace ${d} días`:'hace más de un mes';
   const col=d<2?'var(--green)':d<7?'var(--muted)':d<14?'var(--amber)':'var(--red-fg)', hora=new Date(t).toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
-  return `<div class="small"><span style="color:${col}">●</span> Última conexión: <b style="color:${col}">${rel}</b>${m<5?'':` <span class="muted">· ${fdate(t)} ${hora}</span>`}</div>` }
+  const a=DATA.athletes[aid]||{}, otroMeso=L.meso&&L.meso!==mesoOf(a)?` · ${esc(mesoLabel(L.meso))}`:'';
+  const ent=L.w!=null&&L.d!=null?`<div class="small">Último entrenamiento: <b>día ${L.d}, semana ${L.w}</b>${otroMeso} <span class="${L.done?'':'muted'}" style="${L.done?'color:var(--green)':''}">· ${L.done?'terminado':'sin terminar'}</span></div>`:'';
+  return `<div class="small"><span style="color:${col}">●</span> Última conexión: <b style="color:${col}">${rel}</b>${m<5?'':` <span class="muted">· ${fdate(t)} ${hora}</span>`}</div>${ent}` }
 function setPref(k,v){ const id=prefsId(S.aid), pr={...prefsOf(),aid:S.aid,prefs:true,[k]:v,updatedAt:Date.now()}; Store.put('logs',id,pr) }
 // cada figura alterna entre la pose A y la B; 'rot' gira un brazo alrededor del hombro
 const SPL='keyTimes="0;.5;1" calcMode="spline" keySplines=".45 0 .55 1;.45 0 .55 1"';
