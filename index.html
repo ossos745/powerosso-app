@@ -528,6 +528,21 @@ const prefsId=aid=>`${aid}~PREFS`;
 // gif = animación de cada ejercicio; ipf = tarjeta "Evaluar en video" (apagada por defecto)
 const prefsOf=(aid=S.aid)=>({warm:true,aprox:true,gif:true,ipf:false,...(DATA.logs[prefsId(aid)]||{})});
 const PREF_LBL={warm:'Calentamiento',aprox:'Aproximaciones',gif:'Animaciones de ejercicios',ipf:'Analizador de video'};
+// última conexión: registro especial '<aid>~SEEN' que el alumno anota al abrir la app (y al volver a ella).
+// Lleva prefs:true para que todo lo que recorre los logs lo ignore como a '<aid>~PREFS'.
+const seenId=aid=>`${aid}~SEEN`;
+function markSeen(){ if(Store.kind!=='supa'||S.isCoach||!S.myAid||!DATA.athletes[S.myAid]) return;
+  const id=seenId(S.myAid), now=Date.now(), L=DATA.logs[id]; if(L&&now-(L.at||0)<5*60000) return;
+  Store.put('logs',id,{aid:S.myAid,prefs:true,seen:true,at:now,updatedAt:now}) }
+// lo último que se sabe del alumno: su registro de conexión o, si no hay (antes de esto), su último registro u observación
+function lastSeen(aid){ let t=(DATA.logs[seenId(aid)]||{}).at||0;
+  Object.values(DATA.logs).forEach(L=>{ if(L&&L.aid===aid&&!L.prefs) t=Math.max(t,+L.updatedAt||0,+L.finishedAt||0) });
+  Object.values(DATA.notes).forEach(n=>{ if(n&&n.aid===aid) t=Math.max(t,+n.at||0) }); return t }
+function seenHtml(aid){ const t=lastSeen(aid); if(!t) return '<div class="small muted">● Última conexión: nunca</div>';
+  const m=Math.floor((Date.now()-t)/60000), h=Math.floor(m/60), d=Math.floor(h/24);
+  const rel=m<5?'ahora':m<60?`hace ${m} min`:h<24?`hace ${h} h`:d===1?'ayer':d<30?`hace ${d} días`:'hace más de un mes';
+  const col=d<2?'var(--green)':d<7?'var(--muted)':d<14?'var(--amber)':'var(--red-fg)', hora=new Date(t).toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
+  return `<div class="small"><span style="color:${col}">●</span> Última conexión: <b style="color:${col}">${rel}</b>${m<5?'':` <span class="muted">· ${fdate(t)} ${hora}</span>`}</div>` }
 function setPref(k,v){ const id=prefsId(S.aid), pr={...prefsOf(),aid:S.aid,prefs:true,[k]:v,updatedAt:Date.now()}; Store.put('logs',id,pr) }
 // cada figura alterna entre la pose A y la B; 'rot' gira un brazo alrededor del hombro
 const SPL='keyTimes="0;.5;1" calcMode="spline" keySplines=".45 0 .55 1;.45 0 .55 1"';
@@ -1299,6 +1314,7 @@ function vAlumnos(){const list=Object.entries(DATA.athletes).map(([id,a])=>({id,
     const cw=P&&currentWeek(a.id), w=P&&P.weeks.find(x=>x.n===cw), done=w?weekDone(w,a.id):0;
     return `<div class="card"><div class="ath"><div class="av">${esc((a.name||'?')[0])}</div><div style="min-width:0">
       <div class="row"><b>${esc(a.name)}</b>${a.coach?'<span class="pill gold">Tú</span>':un?`<span class="pill red">${un} sin revisar</span>`:'<span class="pill">Al día</span>'}</div>
+      ${a.coach?'':`<div style="margin:2px 0">${seenHtml(a.id)}</div>`}
       ${P?`<div class="small muted">Semana ${cw} · ${done}/${w.days.length} sesiones${a.file?` · ${esc(a.file)}`:''}${a.eva&&a.eva.on?' · <span class="gold">EVA activa</span>':''}</div>
       <label class="f" style="margin-top:8px">Mesociclo<select class="t" data-meso="${a.id}">${avail.map(m=>`<option value="${m[0]}" ${m[0]===mk?'selected':''}>${m[1]}</option>`).join('')}</select></label>
       <div class="bar" style="margin-top:6px"><b style="width:${100*done/w.days.length}%"></b></div>
@@ -1987,7 +2003,7 @@ function route(){ ipfLeerHash(); const h=decodeURIComponent((location.hash||'').
   else if(!S.isCoach&&S.myAid&&DATA.athletes[S.myAid]){S.mode='athlete'; S.aid=S.myAid}
   else if(S.isCoach){S.mode='coach'; if(S.ctab!=='notas') S.ctab='alumnos'}
   else S.mode=h&&S.ready<3?'loading':'nolink';
-  render(); if(S.ipfHash){ const d=S.ipfHash; S.ipfHash=null; ipfRecibir(d,null) } if(S.mode!=='nolink'&&S.mode!=='loading') stampLegacy() }
+  render(); if(S.ipfHash){ const d=S.ipfHash; S.ipfHash=null; ipfRecibir(d,null) } if(S.mode!=='nolink'&&S.mode!=='loading'){ stampLegacy(); markSeen() } }
 window.addEventListener('hashchange',route);
 function setMeso(aid,k){ const at=JSON.parse(JSON.stringify(DATA.athletes[aid])); at.meso=k; Store.put('athletes',aid,at); if(aid===S.aid) S.week=null; flash(`${at.name.split(' ')[0]} ahora está en ${mesoLabel(k)}.`) }
 document.addEventListener('input',e=>{const t=e.target;
@@ -2079,7 +2095,7 @@ const installBanner=()=>installEv?`<div class="banner"><span>Instala Powerosso c
     savedToken.set(Store.token,S.isCoach);
     S.ready=3; if(S.isCoach&&new URLSearchParams(location.search).get('ver')==='obs') S.ctab='notas'; route(); if(S.offline) flash('Sin conexión: estás viendo lo último guardado en este teléfono. Lo que anotes se sube solo cuando vuelva la señal.',true); if(S.isCoach) pushState();
     try{ navigator.serviceWorker&&navigator.serviceWorker.addEventListener('message',e=>{ if(e.data&&e.data.obs&&S.isCoach){ location.hash=''; S.mode='coach'; S.ctab='notas'; Store.pull(false).finally(render) } }) }catch(e){}
-    const again=()=>{ if(document.hidden) return; Store.flush(); Store.pull(false).then(ch=>ch&&softRender()).catch(()=>{}) };
+    const again=()=>{ if(document.hidden) return; markSeen(); Store.flush(); Store.pull(false).then(ch=>ch&&softRender()).catch(()=>{}) };
     window.addEventListener('online',()=>Store.flush()); Store.flush();
     setInterval(again,20000); document.addEventListener('visibilitychange',again); return }
   if(Store.kind==='db'){ let u=null; try{u=await window.claude.use('user')}catch(e){} S.isCoach=u?await u.isOwner():false }
