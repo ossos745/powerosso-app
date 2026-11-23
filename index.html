@@ -79,7 +79,7 @@ button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-vis
 .pill.warn{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 45%,transparent)}
 .pill.red{color:var(--red-fg);border-color:color-mix(in srgb,var(--red-fg) 45%,transparent)}
 .ipfd{margin-top:10px}.ipfd .spec b{font-size:18px}.ipfcri{display:grid;gap:6px}
-.evps{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}.evp{font:600 11px var(--mono);padding:2px 7px;border-radius:999px;border:1px solid var(--c);color:var(--c);white-space:nowrap}
+.evps{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}.evps.col{flex-direction:column;align-items:flex-end;margin-top:0}.evatd .small{text-align:right;max-width:92px;margin-left:auto;font-size:11px}.sercnt{font:600 12px var(--mono);white-space:nowrap}.sercnt.ok{color:var(--green)}.sercnt.low{color:var(--amber)}.tbl.wrap.daytbl td.rl,.tbl.wrap.daytbl td.sc{white-space:nowrap}.daytbl th,.daytbl td{padding:6px 4px}.daytbl .evp{padding:1px 6px}.evp{font:600 11px var(--mono);padding:2px 7px;border-radius:999px;border:1px solid var(--c);color:var(--c);white-space:nowrap}
 .evarow{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;margin-top:8px}.evab{background:none;border:2px solid var(--c);color:var(--fg);border-radius:10px;padding:8px 0;font:700 16px var(--mono);cursor:pointer}.evab[aria-pressed="true"]{background:var(--c);color:#140f0c}
 .ipfres{display:grid;gap:6px;margin-top:10px}.ipfres .chip{padding:3px 9px;font-size:12px}
 .pill.gold{color:var(--gold);border-color:color-mix(in srgb,var(--gold) 45%,transparent)}
@@ -1097,10 +1097,25 @@ function vResumen(){const w=wkObj(S.week), d=w.days.find(x=>x.n===S.day), L=dayL
 // EVA anotado por el alumno en cada serie de un ejercicio (para el coach y el resumen): una pastilla por serie con su color, más el ajuste aceptado
 function evaCell(L,i,st,pills=true){ const A=adjOf(L,i), ps=(pills?st||[]:[]).map((s,j)=>s&&s.eva!=null?`<span class="evp" style="--c:${evaCol(+s.eva)}">S${j+1} · EVA ${s.eva}</span>`:'').filter(Boolean);
   return (ps.length?`<div class="evps" title="Dolor anotado por serie (EVA 0 a 10)">${ps.join('')}</div>`:'')+(A?`<div class="small" style="color:var(--red-fg);margin-top:3px">${A.stop?`Paró el ejercicio por dolor (EVA ${A.eva} en la serie ${A.set})`:A.kg?`Bajó a ${fmt(A.kg,1)} kg por EVA ${A.eva}${A.from?` (de ${fmt(A.from,1)} kg)`:''}`:`Bajó ${fmt(A.pct*100)} % por EVA ${A.eva}`}</div>`:'')+((L&&(L.adjNo||{})[i]!=null)&&!A?`<div class="small muted" style="margin-top:3px">Siguió igual pese al EVA</div>`:'') }
-function dayTable(w,d,coach){const L=dayLog(w.n,d.n);
-  return `<div class="card"><div class="eyebrow" style="margin-bottom:6px">${coach?`${dayName(d)} · ${title(d.focus)}`:'Lo que hiciste'}</div><div class="tbl wrap"><table><thead><tr><th>Ejercicio</th><th>Plan</th><th>Real</th></tr></thead><tbody>
-  ${d.exercises.map((x,i)=>{const st=(L&&L.sets[i])||[]; const best=st.length?st.reduce((a,s)=>(+s.kg>=+a.kg?s:a)):null; const ns=exNotes(w.n,d.n,i);
-    return `<tr><td>${title(x.name)}${ns.length?`<div class="small gold">${ns.map(n=>esc(n.tag||'Nota')+(n.text?': '+esc(n.text):'')).join('<br>')}</div>`:''}${evaCell(L,i,st)}</td><td class="pl num">${x.sets}×${esc(x.reps)}${x.kg!=null?'<br>'+fmt(x.kg,1)+' kg':''}${x.rpe!=null?' @'+esc(x.rpe):''}</td><td class="num">${st.length?`${st.length}/${x.sets}<br>${best.kg!=null&&best.kg!==''?fmt(+best.kg,1)+'×':''}${best.reps}${best.rpe!=null&&best.rpe!==''?' @'+fmt(+best.rpe,1):''}`:'<span class="muted">—</span>'}</td></tr>`}).join('')}
+// Lo realizado agrupado por bloques seguidos de igual peso y reps: "4×6", "1×8, 3×6"; si cambia el peso, cada bloque con su kg
+function realScheme(st){ const kgS=v=>fmt(v,v%1?1:0), ok=st.filter(s=>s&&(hasR(s.reps)||hasR(s.kg)||(s.reps!=null&&s.reps!==''))); if(!ok.length) return '';
+  const kgOf=s=>hasR(s.kg)&&+s.kg?+s.kg:null, G=[];
+  ok.forEach(s=>{const k=kgOf(s), r=s.reps??'—', g=G[G.length-1]; if(g&&g.kg===k&&String(g.r)===String(r)) g.n++; else G.push({n:1,r,kg:k})});
+  const oneKg=G.every(g=>g.kg===G[0].kg);
+  const rp=ok.map(s=>+s.rpe).filter((v,j)=>hasR(ok[j].rpe)), lo=rp.length?Math.min(...rp):null, hi=rp.length?Math.max(...rp):null;
+  const rpeTxt=rp.length?` @${kgS(lo)}${hi!==lo?'–'+kgS(hi):''}`:'';
+  if(oneKg) return `<b>${G.map(g=>`${g.n}×${esc(g.r)}`).join(', ')}</b>${G[0].kg!=null?'<br>'+kgS(G[0].kg)+' kg':''}${rpeTxt?'<br>'+rpeTxt.trim():''}`;
+  return G.map(g=>`<b>${g.n}×${esc(g.r)}</b>${g.kg!=null?' · '+kgS(g.kg):''}`).join('<br>')+'<br><span class="muted">kg</span>'+(rpeTxt?'<br>'+rpeTxt.trim():'') }
+// Columna EVA: una pastilla por serie "S2 · 3" y el ajuste aceptado
+function evaCol2(L,i,st,x,aid){ const kgS=v=>fmt(v,v%1?1:0), ps=(st||[]).map((s,j)=>s&&s.eva!=null?`<span class="evp" style="--c:${evaCol(+s.eva)}">S${j+1}·${s.eva}</span>`:'').filter(Boolean), A=adjOf(L,i), no=L&&(L.adjNo||{})[i]!=null&&!A,
+    adj=A?`<div class="small" style="color:var(--red-fg);margin-top:3px">${A.stop?`Paró (EVA ${A.eva}, S${A.set})`:A.kg?`Bajó a ${kgS(A.kg)} kg${A.from?` (era ${kgS(A.from)})`:''}`:`Bajó ${fmt(A.pct*100)} %`}</div>`:no?'<div class="small muted" style="margin-top:3px">Siguió igual</div>':'';
+  return ps.length||adj?`${ps.length?`<div class="evps col">${ps.join('')}</div>`:''}${adj}`:`<span class="muted">${evaOn(x,aid)?'—':''}</span>` }
+function dayTable(w,d,coach){const L=dayLog(w.n,d.n), aid=S.aid;
+  // Columna EVA si el alumno tiene la escala activada, o si algún registro del día ya trae EVA
+  const withEva=!!evaCfg(aid).on||d.exercises.some((x,i)=>(((L&&L.sets[i])||[]).some(s=>s&&s.eva!=null))||(L&&((L.adj||{})[i]||(L.adjNo||{})[i]!=null)));
+  return `<div class="card"><div class="eyebrow" style="margin-bottom:6px">${coach?`${dayName(d)} · ${title(d.focus)}`:'Lo que hiciste'}</div><div class="tbl wrap daytbl"><table><thead><tr><th>Ejercicio</th><th>Plan</th><th>Real</th><th title="Series hechas / planificadas">Series</th>${withEva?'<th title="Dolor anotado por serie (EVA 0 a 10)">EVA</th>':''}</tr></thead><tbody>
+  ${d.exercises.map((x,i)=>{const raw=(L&&L.sets[i])||[], st=raw.filter(Boolean); const ns=exNotes(w.n,d.n,i), full=st.length>=x.sets;
+    return `<tr><td>${title(x.name)}${ns.length?`<div class="small gold">${ns.map(n=>esc(n.tag||'Nota')+(n.text?': '+esc(n.text):'')).join('<br>')}</div>`:''}${withEva?'':evaCell(L,i,raw)}</td><td class="pl num">${x.sets}×${esc(x.reps)}${x.kg!=null?'<br>'+fmt(x.kg,1)+' kg':''}${x.rpe!=null?'<br>@'+esc(x.rpe):''}</td><td class="num rl">${st.length?realScheme(st):'<span class="muted">—</span>'}</td><td class="num sc"><span class="sercnt${st.length?(full?' ok':' low'):''}">${st.length}/${x.sets}</span></td>${withEva?`<td class="evatd">${evaCol2(L,i,raw,x,aid)}</td>`:''}</tr>`}).join('')}
   </tbody></table></div>${coach&&L?`<div style="margin-top:8px;text-align:right"><button class="chip" data-dellog="${logId(S.aid,w.n,d.n)}">Borrar registro de este día</button></div>`:''}</div>`}
 
 function kpis(r,p,kg){const k=(l,v,pv,u='')=>`<div class="kpi"><div class="l">${l}</div><div class="v">${v}${u}</div><div class="p">plan ${pv}${u}</div></div>`;
