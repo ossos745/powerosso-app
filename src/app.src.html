@@ -454,17 +454,12 @@ const prefsId=aid=>`${aid}~PREFS`;
 // gif = animación de cada ejercicio; ipf = tarjeta "Evaluar en video" (apagada por defecto)
 const prefsOf=(aid=S.aid)=>({warm:true,aprox:true,gif:true,ipf:false,...(DATA.logs[prefsId(aid)]||{})});
 const PREF_LBL={warm:'Calentamiento',aprox:'Aproximaciones',gif:'Animaciones de ejercicios',ipf:'Analizador de video'};
-// última conexión: registro especial '<aid>~SEEN' que el alumno anota al abrir la app (y al volver a ella).
-// Lleva prefs:true para que todo lo que recorre los logs lo ignore como a '<aid>~PREFS'.
-const seenId=aid=>`${aid}~SEEN`;
-function markSeen(){ if(Store.kind!=='supa'||S.isCoach||!S.myAid||!DATA.athletes[S.myAid]) return;
-  const id=seenId(S.myAid), now=Date.now(), L=DATA.logs[id]; if(L&&now-(L.at||0)<5*60000) return;
-  Store.put('logs',id,{aid:S.myAid,prefs:true,seen:true,at:now,updatedAt:now}) }
-// lo último que se sabe del alumno: su registro de conexión o, si no hay (antes de esto), su último registro u observación
-function lastSeen(aid){ let t=(DATA.logs[seenId(aid)]||{}).at||0;
-  Object.values(DATA.logs).forEach(L=>{ if(L&&L.aid===aid&&!L.prefs) t=Math.max(t,+L.updatedAt||0,+L.finishedAt||0) });
-  Object.values(DATA.notes).forEach(n=>{ if(n&&n.aid===aid) t=Math.max(t,+n.at||0) }); return t }
-function seenHtml(aid){ const t=lastSeen(aid); if(!t) return '<div class="small muted">● Última conexión: nunca</div>';
+// última conexión = la última vez que el alumno inició una rutina (startedAt del log del día; si falta, su primera serie).
+// Un día reiniciado y sin series no cuenta.
+function lastSeen(aid){ let t=0;
+  Object.values(DATA.logs).forEach(L=>{ if(!L||L.aid!==aid||L.prefs) return; const ts=Object.values(L.sets||{}).flat().map(x=>x&&+x.t||0).filter(Boolean);
+    if(L.resetAt&&!ts.length) return; t=Math.max(t,+L.startedAt||(ts.length?Math.min(...ts):0)) }); return t }
+function seenHtml(aid){ const t=lastSeen(aid); if(!t) return '<div class="small muted">● Última conexión: sin rutinas iniciadas</div>';
   const m=Math.floor((Date.now()-t)/60000), h=Math.floor(m/60), d=Math.floor(h/24);
   const rel=m<5?'ahora':m<60?`hace ${m} min`:h<24?`hace ${h} h`:d===1?'ayer':d<30?`hace ${d} días`:'hace más de un mes';
   const col=d<2?'var(--green)':d<7?'var(--muted)':d<14?'var(--amber)':'var(--red-fg)', hora=new Date(t).toLocaleTimeString('es-CL',{hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
@@ -1787,7 +1782,7 @@ function route(){ ipfLeerHash(); const h=decodeURIComponent((location.hash||'').
   else if(!S.isCoach&&S.myAid&&DATA.athletes[S.myAid]){S.mode='athlete'; S.aid=S.myAid}
   else if(S.isCoach){S.mode='coach'; if(S.ctab!=='notas') S.ctab='alumnos'}
   else S.mode=h&&S.ready<3?'loading':'nolink';
-  render(); if(S.ipfHash){ const d=S.ipfHash; S.ipfHash=null; ipfRecibir(d,null) } if(S.mode!=='nolink'&&S.mode!=='loading'){ stampLegacy(); markSeen() } }
+  render(); if(S.ipfHash){ const d=S.ipfHash; S.ipfHash=null; ipfRecibir(d,null) } if(S.mode!=='nolink'&&S.mode!=='loading') stampLegacy() }
 window.addEventListener('hashchange',route);
 function setMeso(aid,k){ const at=JSON.parse(JSON.stringify(DATA.athletes[aid])); at.meso=k; Store.put('athletes',aid,at); if(aid===S.aid) S.week=null; flash(`${at.name.split(' ')[0]} ahora está en ${mesoLabel(k)}.`) }
 document.addEventListener('input',e=>{const t=e.target;
@@ -1879,7 +1874,7 @@ const installBanner=()=>installEv?`<div class="banner"><span>Instala Powerosso c
     savedToken.set(Store.token,S.isCoach);
     S.ready=3; if(S.isCoach&&new URLSearchParams(location.search).get('ver')==='obs') S.ctab='notas'; route(); if(S.offline) flash('Sin conexión: estás viendo lo último guardado en este teléfono. Lo que anotes se sube solo cuando vuelva la señal.',true); if(S.isCoach) pushState();
     try{ navigator.serviceWorker&&navigator.serviceWorker.addEventListener('message',e=>{ if(e.data&&e.data.obs&&S.isCoach){ location.hash=''; S.mode='coach'; S.ctab='notas'; Store.pull(false).finally(render) } }) }catch(e){}
-    const again=()=>{ if(document.hidden) return; markSeen(); Store.flush(); Store.pull(false).then(ch=>ch&&softRender()).catch(()=>{}) };
+    const again=()=>{ if(document.hidden) return; Store.flush(); Store.pull(false).then(ch=>ch&&softRender()).catch(()=>{}) };
     window.addEventListener('online',()=>Store.flush()); Store.flush();
     setInterval(again,20000); document.addEventListener('visibilitychange',again); return }
   if(Store.kind==='db'){ let u=null; try{u=await window.claude.use('user')}catch(e){} S.isCoach=u?await u.isOwner():false }
